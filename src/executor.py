@@ -73,6 +73,10 @@ class ExecutionEngine:
 
         self.trade_count += 1
 
+        # Deduct stake from balance at trade time to prevent over-leveraging
+        self.balance -= stake
+        self.balance = round(self.balance, 4)
+
         if self.config.mode == TradingMode.PAPER:
             record = self._execute_paper(signal, stake)
         else:
@@ -82,6 +86,10 @@ class ExecutionEngine:
             self.trades.append(record)
             self._save_state()
             self._append_journal(record)
+        else:
+            # Execution failed — refund the stake
+            self.balance += stake
+            self.balance = round(self.balance, 4)
 
         return record
 
@@ -101,7 +109,8 @@ class ExecutionEngine:
             record.result = "loss"
             self.consecutive_losses += 1
 
-        self.balance += record.pnl
+        # Add back payout (stake was already deducted at trade time)
+        self.balance += record.payout
         self.balance = round(self.balance, 4)
         record.balance_after = self.balance
 

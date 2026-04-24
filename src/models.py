@@ -26,7 +26,8 @@ class TradeSignal:
 
     @property
     def should_trade(self) -> bool:
-        return self.direction in ("up", "down") and self.confidence >= 0.65
+        """Check if direction is tradeable. Confidence threshold is enforced by executor."""
+        return self.direction in ("up", "down")
 
     def summary(self) -> str:
         emoji = {"up": "📈", "down": "📉", "skip": "⏸️"}.get(self.direction, "❓")

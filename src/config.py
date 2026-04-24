@@ -81,6 +81,20 @@ class Config:
         if mode_env in ("paper", "live"):
             self.mode = TradingMode(mode_env)
 
+        # Risk parameter overrides from environment
+        if os.getenv("ROCKY_MAX_RISK_PCT"):
+            self.max_risk_pct = float(os.getenv("ROCKY_MAX_RISK_PCT"))
+        if os.getenv("ROCKY_MIN_CONFIDENCE"):
+            self.min_confidence = float(os.getenv("ROCKY_MIN_CONFIDENCE"))
+        if os.getenv("ROCKY_MAX_CONSECUTIVE_LOSSES"):
+            self.max_consecutive_losses = int(os.getenv("ROCKY_MAX_CONSECUTIVE_LOSSES"))
+        if os.getenv("ROCKY_DAILY_LOSS_LIMIT"):
+            self.daily_loss_limit_pct = float(os.getenv("ROCKY_DAILY_LOSS_LIMIT"))
+        if os.getenv("ROCKY_STARTING_BALANCE"):
+            self.paper_starting_balance = float(os.getenv("ROCKY_STARTING_BALANCE"))
+        if os.getenv("ROCKY_LOOP_INTERVAL"):
+            self.loop_interval_seconds = int(os.getenv("ROCKY_LOOP_INTERVAL"))
+
     def get_position_size_pct(self, confidence: float) -> float:
         """Return position size as fraction of balance based on confidence."""
         if confidence < self.min_confidence:

@@ -1,0 +1,42 @@
+{
+  "_comment": "Rocky trading-specific OpenClaw config overlay. Merge into existing openclaw.json — do NOT replace it. Existing Telegram, LLM, and hook config is preserved from Mac.",
+
+  "plugins": {
+    "entries": {
+      "web-search": {
+        "enabled": true,
+        "config": {
+          "provider": "searxng",
+          "baseUrl": "http://127.0.0.1:8888",
+          "resultCount": 8
+        }
+      }
+    }
+  },
+
+  "agent": {
+    "workspace": "/opt/rocky",
+    "soul": "/opt/rocky/SOUL.md",
+    "boot": "/opt/rocky/BOOT.md",
+    "skills": [
+      "/opt/rocky/skills/rocky"
+    ]
+  },
+
+  "cron": [
+    {
+      "id": "rocky-trade-cycle",
+      "schedule": "*/5 * * * *",
+      "description": "Run Rocky trading cycle every 5 minutes",
+      "command": "Run one trading cycle: scan Polymarket for BTC 5-min markets, gather BTC intelligence, analyze with current engine, execute trade if confidence >= 65%, resolve any pending trades. Report results.",
+      "enabled": true
+    },
+    {
+      "id": "rocky-hourly-stats",
+      "schedule": "0 * * * *",
+      "description": "Hourly trading stats report",
+      "command": "Report current trading stats: balance, win rate, total P&L, trades today, consecutive losses. Send via Telegram.",
+      "enabled": true
+    }
+  ]
+}

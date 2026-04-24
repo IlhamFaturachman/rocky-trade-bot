@@ -318,9 +318,11 @@ def test_llm_low_confidence():
     signal = engine.analyze(make_market(), make_snapshot(), orderbook={})
     assert signal.direction == "up"
     assert signal.confidence == 0.55
-    assert signal.should_trade is False
-    assert signal.stake_pct == 0.0
-    print(f"   Low confidence: {signal.direction} @ {signal.confidence:.0%} → no trade")
+    # should_trade is True (direction is valid), but executor will reject
+    # because confidence < min_confidence (0.65). Confidence gating is in executor.
+    assert signal.should_trade is True
+    assert signal.stake_pct == 0.0  # Below min_confidence → 0% sizing
+    print(f"   Low confidence: {signal.direction} @ {signal.confidence:.0%} → executor will reject")
     print("✅ Low confidence test passed")
 
 

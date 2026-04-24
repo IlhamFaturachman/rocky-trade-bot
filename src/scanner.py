@@ -145,8 +145,8 @@ class MarketScanner:
                                     yes_price = price
                                 elif i == 1:
                                     no_price = price
-                            except (ValueError, TypeError):
-                                pass
+                            except (ValueError, TypeError) as e:
+                                logger.debug(f"Price parse error: {e}")
 
                     market = BtcMarket(
                         condition_id=m.get("conditionId", m.get("id", "")),
@@ -219,8 +219,8 @@ class MarketScanner:
                     try:
                         yes_price = float(outcome_prices[0])
                         no_price = float(outcome_prices[1])
-                    except (ValueError, TypeError):
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Price parse error: {e}")
 
                 for i, tid in enumerate(clob_ids):
                     tokens.append({

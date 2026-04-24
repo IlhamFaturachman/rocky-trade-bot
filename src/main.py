@@ -14,6 +14,7 @@ import time
 import signal
 import logging
 import argparse
+import requests
 from datetime import datetime, timezone, timedelta
 
 # Add parent dir to path for imports
@@ -25,6 +26,7 @@ from src.intelligence import IntelligenceEngine
 from src.decision import DecisionEngine
 from src.decision_v2 import DecisionEngineV2
 from src.executor import ExecutionEngine
+from src.notifier import TelegramNotifier
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -42,8 +44,9 @@ def setup_logging(config: Config):
     fh.setFormatter(formatter)
 
     # Console handler
+    console_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
     ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
+    ch.setLevel(console_level)
     ch.setFormatter(formatter)
 
     root = logging.getLogger()
@@ -70,6 +73,7 @@ class Rocky:
         else:
             self.decision = DecisionEngine(config)
         self.executor = ExecutionEngine(config)
+        self.notifier = TelegramNotifier()
         self.running = True
         self.cycle_count = 0
         self.pending_trades = []  # Trades awaiting resolution
@@ -85,6 +89,9 @@ class Rocky:
         logger.info(f"   Min confidence: {self.config.min_confidence:.0%}")
         logger.info(f"   Loop interval: {self.config.loop_interval_seconds}s")
         logger.info("=" * 60)
+
+        # Telegram startup notification
+        self.notifier.send_startup(self.config, self.engine_version)
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._shutdown)
@@ -186,8 +193,7 @@ class Rocky:
 
         if not signal.should_trade:
             logger.info(
-                f"⏸️  Signal confidence {signal.confidence:.0%} below "
-                f"threshold {self.config.min_confidence:.0%}. Sitting out."
+                f"⏸️  Signal direction is '{signal.direction}' — not tradeable. Sitting out."
             )
             return
 
@@ -198,6 +204,7 @@ class Rocky:
         if record:
             self.pending_trades.append(record)
             logger.info(f"✅ Trade #{record.trade_id} placed successfully")
+            self.notifier.send_trade_opened(record)
         else:
             logger.info("Trade execution blocked by risk checks")
 
@@ -266,6 +273,14 @@ class Rocky:
                 )
 
                 resolved.append(trade)
+                self.notifier.send_trade_resolved(trade)
+
+                # Warn on consecutive losses
+                if self.executor.consecutive_losses >= 2:
+                    self.notifier.send_warning(
+                        f"{self.executor.consecutive_losses} consecutive losses. "
+                        f"Balance: ${self.executor.balance:.4f}"
+                    )
 
         # Remove resolved trades from pending
         for trade in resolved:
@@ -274,7 +289,6 @@ class Rocky:
     def _fetch_candle_open_at(self, trade_timestamp: float) -> float:
         """Fetch the Binance 5-min candle open price that covers the trade time."""
         try:
-            import requests
             # Get the 5-min candle that started at or before trade_timestamp
             start_ms = int(trade_timestamp * 1000)
             resp = requests.get(
@@ -303,7 +317,6 @@ class Rocky:
     def _fetch_candle_close_at(self, trade_timestamp: float) -> float:
         """Fetch the Binance 5-min candle close price for resolution."""
         try:
-            import requests
             start_ms = int(trade_timestamp * 1000)
             resp = requests.get(
                 f"{self.config.binance_api}/klines",
@@ -339,13 +352,16 @@ class Rocky:
         logger.info(f"   Worst trade: ${stats['worst_trade']:+.4f}")
         logger.info(f"   Consecutive losses: {stats['consecutive_losses']}")
         logger.info("=" * 40 + "\n")
+        self.notifier.send_stats(stats)
 
     def _shutdown(self, signum, frame):
         """Graceful shutdown."""
         logger.info("\n🛑 Rocky shutting down gracefully...")
         self.running = False
         self._print_stats()
+        self.notifier.send_shutdown()
         logger.info("Goodbye. 🪨")
+        time.sleep(1)  # Let notification thread finish
         sys.exit(0)
 
 

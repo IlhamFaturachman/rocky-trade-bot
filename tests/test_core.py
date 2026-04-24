@@ -167,14 +167,17 @@ def test_executor_paper():
         assert record is not None
         assert record.stake_usd == 0.75  # 15% of $5
         assert record.mode == "paper"
-        print(f"   Executed: ${record.stake_usd:.4f} stake")
+        # Balance should be deducted at trade time
+        assert executor.balance == 4.25, f"Balance after trade: {executor.balance} (expected 4.25)"
+        print(f"   Executed: ${record.stake_usd:.4f} stake, balance now ${executor.balance:.4f}")
 
-        # Resolve as win
+        # Resolve as win: payout = 0.75/0.50 = 1.50, balance = 4.25 + 1.50 = 5.75
         executor.resolve_trade(record, won=True)
         assert record.result == "win"
-        assert record.pnl > 0
-        assert executor.balance > 5.00
-        print(f"   WIN: P&L ${record.pnl:+.4f} → balance ${executor.balance:.4f}")
+        assert record.payout == 1.50, f"Payout: {record.payout} (expected 1.50)"
+        assert record.pnl == 0.75, f"PnL: {record.pnl} (expected 0.75)"
+        assert executor.balance == 5.75, f"Balance after win: {executor.balance} (expected 5.75)"
+        print(f"   WIN: payout ${record.payout:.4f}, P&L ${record.pnl:+.4f} → balance ${executor.balance:.4f}")
 
         # Verify journal
         assert os.path.exists(config.journal_path)

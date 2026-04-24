@@ -323,8 +323,8 @@ class DecisionEngineV2:
             if start >= 0 and end > start:
                 try:
                     return json.loads(text[start:end])
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as e:
+                    logger.debug(f"JSON parse error: {e}")
 
         logger.error("Could not parse JSON from LLM response")
         return None
