@@ -1,0 +1,12 @@
+{
+  "name": "rocky-trader",
+  "version": "0.1.0",
+  "description": "PolyClaw Trader - Autonomous BTC prediction market trading agent",
+  "main": "src/main.py",
+  "scripts": {
+    "start": "python3 src/main.py",
+    "paper": "python3 src/main.py --mode paper",
+    "live": "python3 src/main.py --mode live",
+    "test": "python3 -m pytest tests/ -v"
+  }
+}

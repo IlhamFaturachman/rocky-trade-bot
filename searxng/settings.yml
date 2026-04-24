@@ -1,0 +1,52 @@
+use_default_settings: true
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "rocky-searxng-change-me-in-production"
+  bind_address: "0.0.0.0"
+  port: 8080
+  limiter: false
+  image_proxy: false
+
+engines:
+  # Prioritize engines useful for crypto/BTC news
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
+
+  - name: bing news
+    engine: bing_news
+    shortcut: bn
+    disabled: false
+
+  - name: google news
+    engine: google_news
+    shortcut: gn
+    disabled: false
+
+  # Disable heavy/slow engines to save resources on 2GB VPS
+  - name: google images
+    engine: google_images
+    disabled: true
+
+  - name: google videos
+    engine: google_videos
+    disabled: true

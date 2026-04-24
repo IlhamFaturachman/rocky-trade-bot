@@ -1,0 +1,31 @@
+[Unit]
+Description=Rocky PolyClaw Trader - Autonomous BTC Trading Agent
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=rocky
+Group=rocky
+WorkingDirectory=/opt/rocky
+EnvironmentFile=/opt/rocky/.env
+ExecStart=/opt/rocky/venv/bin/python3 src/main.py --engine ${ROCKY_ENGINE:-v1}
+Restart=always
+RestartSec=30
+StartLimitIntervalSec=600
+StartLimitBurst=10
+
+# Logging
+StandardOutput=append:/opt/rocky/logs/rocky-service.log
+StandardError=append:/opt/rocky/logs/rocky-service.log
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/rocky/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
