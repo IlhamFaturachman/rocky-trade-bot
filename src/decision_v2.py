@@ -362,6 +362,7 @@ class DecisionEngineV2:
         }
         payload = {
             "model": self.model,
+            "stream": False,  # some gateways (9router opencode-free) leak SSE otherwise
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,
             "messages": [
@@ -390,7 +391,16 @@ class DecisionEngineV2:
                     time.sleep(1.2 * attempt)
                     continue
                 resp.raise_for_status()
-                data = resp.json()
+                try:
+                    data = resp.json()
+                except requests.exceptions.JSONDecodeError:
+                    # Some gateways append SSE trailers (e.g. "data: [DONE]") to
+                    # non-stream responses. Strip trailing junk before parsing.
+                    raw = resp.text
+                    end = raw.rfind("}")
+                    if end > 0:
+                        raw = raw[: end + 1]
+                    data = json.loads(raw)
                 msg = data["choices"][0]["message"]
                 text = msg.get("content") or ""
                 # Some models put JSON only in reasoning; fall back if content empty
