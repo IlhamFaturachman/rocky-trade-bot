@@ -20,14 +20,13 @@ if p.exists():
             continue
         k,v = line.split('=',1)
         kv[k.strip()] = v.strip()
-hc = yaml.safe_load(Path('/home/farm/.hermes/config.yaml').read_text())
-key = hc['model']['api_key']
 updates = {
   'TRADING_MODE': 'paper',
   'ROCKY_ENGINE': 'v2',
-  'LLM_API_URL': 'http://127.0.0.1:8080/v1/chat/completions',
-  'LLM_API_KEY': key,
-  'LLM_MODEL': 'grok-4.5',
+  # LLM via local 9router gateway -> OpenCode Free (deepseek-v4-flash-free, no-auth upstream)
+  'LLM_API_URL': 'http://127.0.0.1:20128/v1/chat/completions',
+  'LLM_API_KEY': 'sk-ec29591901e9df02-fmjzzv-9987fd46',
+  'LLM_MODEL': 'oc/deepseek-v4-flash-free',
   'LLM_MAX_TOKENS': '1024',
   'LLM_TEMPERATURE': '0.15',
   'LLM_TIMEOUT_SECONDS': '90',
