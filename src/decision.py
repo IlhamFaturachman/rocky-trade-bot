@@ -73,6 +73,22 @@ class DecisionEngine:
 
         confidence = max(confidence, 0.0)
 
+        # Skip weak / no-edge / extreme prices
+        if direction == "skip":
+            confidence = min(confidence, 0.5)
+        else:
+            entry = market.yes_price if direction == "up" else market.no_price
+            # Don't buy expensive favorites without huge edge
+            if entry > 0.72 or entry < 0.28:
+                direction = "skip"
+                confidence = 0.0
+                momentum_reasons.append(f"Entry price {entry:.2f} outside 0.28–0.72 band")
+            # Require market mispricing component when trading
+            if direction != "skip" and abs(market_score) < 0.05 and abs(momentum_score) < 0.25:
+                direction = "skip"
+                confidence = 0.0
+                momentum_reasons.append("No clear edge vs market + weak momentum")
+
         # Collect all reasoning
         all_reasons = momentum_reasons + volatility_reasons + news_reasons + market_reasons
 
@@ -80,7 +96,7 @@ class DecisionEngine:
         token_id, expected_price = self._select_token(market, direction)
 
         # Position sizing
-        stake_pct = self.config.get_position_size_pct(confidence)
+        stake_pct = self.config.get_position_size_pct(confidence) if direction != "skip" else 0.0
 
         signal = TradeSignal(
             direction=direction,
@@ -239,10 +255,12 @@ class DecisionEngine:
         self, momentum_score: float, news_score: float,
         market_score: float, snapshot: BtcSnapshot
     ) -> str:
-        """Determine trade direction based on combined signals."""
+        """Determine trade direction; skip when signals are weak/choppy."""
         combined = momentum_score * 0.5 + market_score * 0.3 + news_score * 0.2
-
-        if combined >= 0:
+        # Require a minimum absolute score — coin-flip noise should not trade
+        if abs(combined) < 0.12:
+            return "skip"
+        if combined > 0:
             return "up"
         return "down"
 

@@ -10,6 +10,8 @@ import time
 import json
 import tempfile
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Mock requests before importing modules that need it
@@ -35,15 +37,16 @@ def test_config():
     """Test configuration and position sizing."""
     config = Config()
     assert config.mode == TradingMode.PAPER
-    assert config.max_risk_pct == 0.20
-    assert config.min_confidence == 0.65
+    assert config.max_risk_pct == 0.10
+    assert config.min_confidence == 0.68
 
     # Position sizing
     assert config.get_position_size_pct(0.50) == 0.0   # Below threshold
-    assert config.get_position_size_pct(0.65) == 0.10   # Tier 1
-    assert config.get_position_size_pct(0.75) == 0.15   # Tier 2
-    assert config.get_position_size_pct(0.85) == 0.20   # Tier 3
-    assert config.get_position_size_pct(0.95) == 0.20   # Max
+    assert config.get_position_size_pct(0.65) == 0.0   # Below 0.68 min confidence
+    assert config.get_position_size_pct(0.70) == 0.05  # Tier 1 (68-74%)
+    assert config.get_position_size_pct(0.78) == 0.08  # Tier 2 (75-84%)
+    assert config.get_position_size_pct(0.85) == 0.10  # Tier 3 (85%+)
+    assert config.get_position_size_pct(0.95) == 0.10  # Max
 
     print("✅ Config tests passed")
 
@@ -171,12 +174,16 @@ def test_executor_paper():
         assert executor.balance == 4.25, f"Balance after trade: {executor.balance} (expected 4.25)"
         print(f"   Executed: ${record.stake_usd:.4f} stake, balance now ${executor.balance:.4f}")
 
-        # Resolve as win: payout = 0.75/0.50 = 1.50, balance = 4.25 + 1.50 = 5.75
+        # Resolve as win. Entry is fee-bumped: 0.50 × (1 + 150bps) = 0.5075,
+        # so shares = 0.75 / 0.5075 and payout = shares × $1.
         executor.resolve_trade(record, won=True)
         assert record.result == "win"
-        assert record.payout == 1.50, f"Payout: {record.payout} (expected 1.50)"
-        assert record.pnl == 0.75, f"PnL: {record.pnl} (expected 0.75)"
-        assert executor.balance == 5.75, f"Balance after win: {executor.balance} (expected 5.75)"
+        assert record.payout == pytest.approx(0.75 / 0.5075, rel=1e-9), \
+            f"Payout: {record.payout} (expected {0.75 / 0.5075})"
+        assert record.pnl == pytest.approx(0.75 / 0.5075 - 0.75, rel=1e-9), \
+            f"PnL: {record.pnl} (expected {0.75 / 0.5075 - 0.75})"
+        assert executor.balance == pytest.approx(round(4.25 + 0.75 / 0.5075, 4), rel=1e-9), \
+            f"Balance after win: {executor.balance} (expected {round(4.25 + 0.75 / 0.5075, 4)})"
         print(f"   WIN: payout ${record.payout:.4f}, P&L ${record.pnl:+.4f} → balance ${executor.balance:.4f}")
 
         # Verify journal

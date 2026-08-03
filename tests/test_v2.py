@@ -148,7 +148,7 @@ def test_prompt_building():
     assert "0.48" in prompt, "Orderbook bids missing"
     assert "0.52" in prompt, "Orderbook asks missing"
     assert "Bitcoin surges" in prompt, "News missing"
-    assert "1m ago" in prompt, "Klines missing"
+    assert "| 1m |" in prompt, "Klines missing"
     assert "btc-up-or-down-5m" in prompt, "Series slug missing"
     assert "93,950.00" in prompt, "Price to beat missing"
     assert "Price to beat" in prompt or "price to beat" in prompt, "Price to beat label missing"
@@ -161,12 +161,14 @@ def test_openai_api_format():
     """Test that the LLM call uses OpenAI-compatible format."""
     config = Config()
     os.environ["LLM_API_KEY"] = "test-key"
+    os.environ["LLM_API_URL"] = "http://127.0.0.1:8080/v1/chat/completions"
+    os.environ["LLM_MODEL"] = "grok-4.5"
     engine = DecisionEngineV2(config)
 
-    # Verify defaults
-    assert "enowxlabs" in engine.api_url, f"Wrong API URL: {engine.api_url}"
+    # Verify defaults (local g2a proxy / farm endpoint)
+    assert "127.0.0.1:8080" in engine.api_url, f"Wrong API URL: {engine.api_url}"
     assert "chat/completions" in engine.api_url, f"Not chat completions: {engine.api_url}"
-    assert engine.model == "enowxlabs/claude-opus-4.6", f"Wrong model: {engine.model}"
+    assert engine.model == "grok-4.5", f"Wrong model: {engine.model}"
 
     # Make a call and inspect what was sent
     MockSession._next_response = MockResponse({
@@ -196,7 +198,7 @@ def test_openai_api_format():
     assert "anthropic-version" not in headers, "Should not have anthropic-version header"
 
     # Payload format
-    assert payload["model"] == "enowxlabs/claude-opus-4.6"
+    assert payload["model"] == "grok-4.5"
     assert len(payload["messages"]) == 2, "Should have system + user messages"
     assert payload["messages"][0]["role"] == "system"
     assert payload["messages"][1]["role"] == "user"
@@ -218,6 +220,7 @@ def test_llm_bullish_response():
                 "content": json.dumps({
                     "direction": "up",
                     "confidence": 82,
+                    "p_up": 0.62,
                     "reasoning": [
                         "Strong momentum across all timeframes",
                         "News catalyst: ETF inflows",
@@ -236,8 +239,8 @@ def test_llm_bullish_response():
     assert signal.direction == "up"
     assert signal.confidence == 0.82
     assert signal.should_trade is True
-    assert len(signal.reasoning) == 3
-    assert signal.stake_pct == 0.15  # 75-84% tier
+    assert len(signal.reasoning) == 4  # 3 LLM reasons + code edge check
+    assert signal.stake_pct == 0.08  # 75-84% tier
     assert signal.token_id == "token-yes"
     assert signal.candle_open_price == 93950.0, f"Wrong candle open: {signal.candle_open_price}"
     print(f"   Bullish: {signal.direction} @ {signal.confidence:.0%}, stake {signal.stake_pct:.0%}")
@@ -256,6 +259,7 @@ def test_llm_bearish_response():
                 "content": json.dumps({
                     "direction": "down",
                     "confidence": 71,
+                    "p_up": 0.35,
                     "reasoning": ["Bearish divergence", "SEC news"]
                 })
             }
@@ -267,7 +271,7 @@ def test_llm_bearish_response():
     assert signal.confidence == 0.71
     assert signal.should_trade is True
     assert signal.token_id == "token-no"
-    assert signal.stake_pct == 0.10  # 65-74% tier
+    assert signal.stake_pct == 0.05  # 68-74% tier
     print(f"   Bearish: {signal.direction} @ {signal.confidence:.0%}, stake {signal.stake_pct:.0%}")
     print("✅ Bearish LLM response test passed")
 
@@ -309,6 +313,7 @@ def test_llm_low_confidence():
                 "content": json.dumps({
                     "direction": "up",
                     "confidence": 55,
+                    "p_up": 0.57,
                     "reasoning": ["Slight bullish lean but uncertain"]
                 })
             }
@@ -332,7 +337,7 @@ def test_markdown_fence_parsing():
     os.environ["LLM_API_KEY"] = "test-key"
     engine = DecisionEngineV2(config)
 
-    fenced_json = '```json\n{"direction": "up", "confidence": 88, "reasoning": ["test"]}\n```'
+    fenced_json = '```json\n{"direction": "up", "confidence": 88, "p_up": 0.62, "reasoning": ["test"]}\n```'
     MockSession._next_response = MockResponse({
         "choices": [{
             "message": {"content": fenced_json}

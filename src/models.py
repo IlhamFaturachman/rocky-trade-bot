@@ -23,6 +23,15 @@ class TradeSignal:
     stake_pct: float        # Position size as % of balance
     raw_llm_response: str = ""  # V2 only: full LLM output for journal
     candle_open_price: float = 0.0  # Binance candle open price for resolution
+    # Edge Pack metadata
+    edge_mode: str = ""
+    edge: float = 0.0
+    ask_price: float = 0.0
+    p_model: float = 0.0
+    fee_buffer: float = 0.0
+    t_left: float = 0.0
+    t_elapsed: float = 0.0
+    skip_code: str = ""
 
     @property
     def should_trade(self) -> bool:

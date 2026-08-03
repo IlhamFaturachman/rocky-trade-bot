@@ -35,17 +35,17 @@ class Config:
     coingecko_api: str = "https://api.coingecko.com/api/v3"
     binance_api: str = "https://api.binance.com/api/v3"
 
-    # Risk management
-    max_risk_pct: float = 0.20        # Max 20% of balance per trade
-    min_confidence: float = 0.65      # Min 65% confidence to trade
+    # Risk management (tighter defaults — 5m markets are noisy)
+    max_risk_pct: float = 0.10        # Max 10% of balance per trade
+    min_confidence: float = 0.68      # Min 68% confidence to trade
     max_consecutive_losses: int = 3   # Pause after 3 consecutive losses
-    daily_loss_limit_pct: float = 0.40  # Max 40% daily drawdown
+    daily_loss_limit_pct: float = 0.25  # Max 25% daily drawdown
 
     # Position sizing by confidence
     sizing_tiers: dict = field(default_factory=lambda: {
-        0.65: 0.10,  # 65-74% confidence → 10% of balance
-        0.75: 0.15,  # 75-84% confidence → 15% of balance
-        0.85: 0.20,  # 85%+ confidence → 20% of balance (max)
+        0.68: 0.05,  # 68-74% → 5%
+        0.75: 0.08,  # 75-84% → 8%
+        0.85: 0.10,  # 85%+ → 10% max
     })
 
     # Trading loop

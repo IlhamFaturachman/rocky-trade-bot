@@ -5,3 +5,7 @@ __pycache__/
 logs/
 *.log
 .DS_Store
+.venv/
+.pytest_cache/
+STOP
+run/

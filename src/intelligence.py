@@ -281,22 +281,44 @@ class IntelligenceEngine:
         except Exception as e:
             logger.debug(f"SearXNG unavailable: {e}")
 
-        # Fallback: CryptoCompare news API (no key needed)
+        # Fallback: CryptoCompare (may 401 without key)
         try:
             resp = self.session.get(
                 "https://min-api.cryptocompare.com/data/v2/news/",
                 params={"categories": "BTC", "sortOrder": "latest"},
                 timeout=10,
             )
-            resp.raise_for_status()
-            data = resp.json()
-            for article in data.get("Data", [])[:10]:
-                title = article.get("title", "").strip()
-                if title:
-                    headlines.append(title)
+            if resp.status_code == 200:
+                data = resp.json()
+                for article in data.get("Data", [])[:10]:
+                    title = article.get("title", "").strip()
+                    if title:
+                        headlines.append(title)
+                if headlines:
+                    return headlines
         except Exception as e:
-            logger.warning(f"All news sources failed: {e}")
+            logger.debug(f"CryptoCompare news failed: {e}")
 
+        # Fallback: Binance BTC announcements RSS-ish via public news proxy
+        try:
+            resp = self.session.get(
+                "https://api.coingecko.com/api/v3/news",
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data if isinstance(data, list) else data.get("data", []) or data.get("news", [])
+                for article in items[:10]:
+                    title = (article.get("title") or article.get("description") or "").strip()
+                    if title and ("btc" in title.lower() or "bitcoin" in title.lower() or True):
+                        headlines.append(title[:160])
+                if headlines:
+                    return headlines[:10]
+        except Exception as e:
+            logger.debug(f"CoinGecko news failed: {e}")
+
+        if not headlines:
+            logger.warning("All news sources failed — continuing without headlines")
         return headlines
 
     def _analyze_headlines(self, headlines: list[str]) -> str:

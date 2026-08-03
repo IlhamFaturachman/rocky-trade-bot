@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Rocky 7-day isolated paper/data-collection stack
+# - paper loop (v2 + Liam farm g2a)
+# - dashboard :8787
+# - watchdog restarts if dead
+# - daily Telegram report + analysis
+set -euo pipefail
+ROOT=/home/farm/rocky-trade-bot
+cd "$ROOT"
+mkdir -p logs run
+
+PY="$ROOT/.venv/bin/python3"
+ENV_FILE="$ROOT/.env"
+
+load_env() {
+  set -a
+  # shellcheck disable=SC1090
+  source <(grep -v '^#' "$ENV_FILE" | sed 's/\r$//')
+  set +a
+  export ROCKY_DATA_COLLECT="${ROCKY_DATA_COLLECT:-true}"
+  export ROCKY_ENGINE="${ROCKY_ENGINE:-v2}"
+  export TRADING_MODE="${TRADING_MODE:-paper}"
+  export LLM_TIMEOUT_SECONDS="${LLM_TIMEOUT_SECONDS:-25}"
+  export LLM_MAX_ATTEMPTS="${LLM_MAX_ATTEMPTS:-2}"
+}
+
+is_running() {
+  local pattern=$1
+  pgrep -f "$pattern" >/dev/null 2>&1
+}
+
+start_paper() {
+  if is_running "rocky-trade-bot/.venv/bin/python3 src/main.py"; then
+    echo "[watchdog] paper already running"
+    return
+  fi
+  load_env
+  # Mode from .env only — paper|live. Live still needs ROCKY_LIVE_ENABLED=true
+  # and ROCKY_LIVE_DRY_RUN=false to post real CLOB orders.
+  local mode="${TRADING_MODE:-paper}"
+  local engine="${ROCKY_ENGINE:-v2}"
+  local interval="${ROCKY_LOOP_INTERVAL:-60}"
+  local bal="${ROCKY_STARTING_BALANCE:-100}"
+  echo "[watchdog] starting mode=$mode engine=$engine interval=$interval $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  nohup "$PY" src/main.py --mode "$mode" --engine "$engine" --interval "$interval" --balance "$bal" \
+    >> logs/paper.stdout 2>&1 &
+  echo $! > run/paper.pid
+}
+
+start_dash() {
+  if is_running "rocky-trade-bot/.venv/bin/python3 src/dashboard.py"; then
+    echo "[watchdog] dashboard already running"
+    return
+  fi
+  load_env
+  echo "[watchdog] starting dashboard $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  nohup "$PY" src/dashboard.py --host 0.0.0.0 --port 8787 \
+    >> logs/dashboard.log 2>&1 &
+  echo $! > run/dashboard.pid
+}
+
+daily_report_if_due() {
+  local stamp
+  stamp=$(date -u +%Y-%m-%d)
+  local marker="run/daily_report_$stamp"
+  if [[ -f "$marker" ]]; then
+    return
+  fi
+  # only after 00:05 UTC
+  local hour min
+  hour=$(date -u +%H)
+  min=$(date -u +%M)
+  if [[ "$hour" == "00" && "$min" -lt 5 ]]; then
+    return
+  fi
+  # run once per day after first watchdog tick past 00:05
+  if [[ ! -f "$marker" ]]; then
+    load_env
+    echo "[watchdog] daily report $stamp"
+    "$PY" scripts/analyze_collection.py --days 1 > "logs/daily_$stamp.txt" 2>&1 || true
+    # send telegram summary if configured
+    if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then
+      local body
+      body=$(head -c 3500 "logs/daily_$stamp.txt" | sed 's/"/\\"/g')
+      curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        -H 'Content-Type: application/json' \
+        -d "{\"chat_id\":${TELEGRAM_CHAT_ID},\"text\":\"🪨 Rocky daily collection\\n<pre>${body}</pre>\",\"parse_mode\":\"HTML\",\"disable_web_page_preview\":true}" \
+        >/dev/null 2>&1 || true
+    fi
+    touch "$marker"
+  fi
+}
+
+# one-shot ensure
+start_paper
+start_dash
+daily_report_if_due
+
+# if invoked as daemon loop
+if [[ "${1:-}" == "--loop" ]]; then
+  echo "[watchdog] loop mode"
+  # Stale last_cycle alone is NOT enough to kill: LLM cycles can take 45–180s
+  # and last_cycle is only written at end of cycle. Killing every 60s while
+  # last_cycle is old creates a permanent start→LLM→kill flap.
+  # Restart only when paper is truly stuck: process uptime > STALE_SEC AND
+  # last_cycle (or heartbeat) older than STALE_SEC.
+  STALE_SEC="${ROCKY_WATCHDOG_STALE_SEC:-900}"
+  while true; do
+    start_paper
+    start_dash
+    daily_report_if_due
+    paper_pid=$(pgrep -f "rocky-trade-bot/.venv/bin/python3 src/main.py" | head -1 || true)
+    if [[ -n "${paper_pid}" && -f logs/last_cycle.json ]]; then
+      age=$(( $(date +%s) - $(stat -c %Y logs/last_cycle.json) ))
+      # etimes = seconds since process start (Linux ps)
+      etime_sec=$(ps -o etimes= -p "${paper_pid}" 2>/dev/null | tr -d ' ' || echo 0)
+      etime_sec=${etime_sec:-0}
+      if (( age > STALE_SEC && etime_sec > STALE_SEC )); then
+        echo "[watchdog] paper stuck: last_cycle age=${age}s process_uptime=${etime_sec}s (limit ${STALE_SEC}s) — restart"
+        pkill -f "rocky-trade-bot/.venv/bin/python3 src/main.py" 2>/dev/null || true
+        sleep 2
+        start_paper
+      elif (( age > STALE_SEC )); then
+        echo "[watchdog] last_cycle stale ${age}s but paper young (${etime_sec}s) — wait (no kill)"
+      fi
+    fi
+    sleep 60
+  done
+fi
