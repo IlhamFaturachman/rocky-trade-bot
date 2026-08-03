@@ -142,6 +142,9 @@ def test_decision_engine():
 
 def test_executor_paper():
     """Test paper trade execution and resolution."""
+    # Isolate from deployment .env (e.g. ROCKY_STARTING_BALANCE on the VPS),
+    # which Config.__post_init__ would otherwise apply over explicit args.
+    os.environ["ROCKY_STARTING_BALANCE"] = "5.00"
     with tempfile.TemporaryDirectory() as tmpdir:
         config = Config(mode=TradingMode.PAPER, paper_starting_balance=5.00)
         config.state_path = os.path.join(tmpdir, "state.json")
