@@ -736,7 +736,7 @@ class Rocky:
             if age < min_age:
                 continue
 
-            if self.config.mode == TradingMode.PAPER:
+            if self.config.mode in (TradingMode.PAPER, TradingMode.LIVE):
                 # Get the candle open price (price to beat)
                 candle_open = trade.candle_open_price
 
