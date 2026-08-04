@@ -750,8 +750,22 @@ class Rocky:
                     candle_open = trade.btc_price_at_entry
 
                 if candle_open <= 0:
-                    logger.warning(f"Trade #{trade.trade_id}: no candle open price, skipping")
-                    continue
+                    # Watchdog: if trade is old (>30min) and candle fetch keeps
+                    # failing, force-resolve using btc_price_at_entry + current
+                    # snapshot. Prevents permanent ghost trades from Binance outages.
+                    age = time.time() - trade.timestamp
+                    if age > 1800 and trade.btc_price_at_entry > 0:
+                        snapshot = self.intel.get_snapshot()
+                        if snapshot.price_usd > 0:
+                            candle_open = trade.btc_price_at_entry
+                            candle_close = snapshot.price_usd
+                            logger.warning(
+                                f"Trade #{trade.trade_id}: force-resolving after {age/60:.0f}min "
+                                f"(candle fetch failed) open={candle_open:.2f} close={candle_close:.2f}"
+                            )
+                    if candle_open <= 0:
+                        logger.warning(f"Trade #{trade.trade_id}: no candle open price, skipping")
+                        continue
 
                 # Fetch the candle close price (current price as proxy,
                 # or the actual 5-min candle close from Binance)

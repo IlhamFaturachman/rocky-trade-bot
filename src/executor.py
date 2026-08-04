@@ -522,7 +522,14 @@ class ExecutionEngine:
                     state = json.load(f)
                 self.balance = state.get("balance", self.config.paper_starting_balance)
                 self.trade_count = state.get("trade_count", 0)
-                self.consecutive_losses = state.get("consecutive_losses", 0)
+                # Recover from journal if state was lost (prevents ID collision)
+                journal_max = self._max_trade_id_from_journal()
+                if journal_max >= self.trade_count:
+                    logger.warning(
+                        f"State trade_count={self.trade_count} < journal max={journal_max} "
+                        f"— recovering to {journal_max} to prevent ID collision"
+                    )
+                    self.trade_count = journal_max
                 self.daily_starting_balance = state.get(
                     "daily_starting_balance", self.balance
                 )
@@ -531,7 +538,29 @@ class ExecutionEngine:
                     f"trades={self.trade_count}"
                 )
         except Exception as e:
-            logger.warning(f"Could not load state: {e}")
+            logger.warning(f"Could not load state: {e} — recovering trade_count from journal")
+            self.trade_count = self._max_trade_id_from_journal()
+
+    def _max_trade_id_from_journal(self) -> int:
+        """Scan journal for max trade_id — prevents ID collision if state lost."""
+        mx = 0
+        try:
+            if os.path.exists(self.config.journal_path):
+                with open(self.config.journal_path, "r", errors="replace") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            d = json.loads(line)
+                            tid = int(d.get("trade_id", 0) or 0)
+                            if tid > mx:
+                                mx = tid
+                        except (json.JSONDecodeError, ValueError, TypeError):
+                            continue
+        except Exception:
+            pass
+        return mx
 
     def _save_state(self):
         try:
