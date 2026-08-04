@@ -55,6 +55,7 @@ updates = {
   'LOG_LEVEL': 'INFO',
   'BINANCE_API': 'https://data-api.binance.vision/api/v3',
 }
+kv.update(updates)
 lines = ['# Rocky paper + Edge Pack + Telegram @gracerockyy_bot']
 for k,v in updates.items():
     lines.append(f'{k}={v}')
