@@ -134,9 +134,14 @@ def verify_once() -> list[dict]:
     new_rows = []
 
     # Collect resolved trades (last occurrence per trade_id wins — resolved event)
+    # Only verify trades from the last 2 hours to avoid scanning huge old journals.
+    cutoff = time.time() - 7200
     resolved: dict[int, dict] = {}
     for t in trades:
         if t.get("_event") != "resolved":
+            continue
+        ts = float(t.get("timestamp") or 0)
+        if ts < cutoff:
             continue
         tid = t.get("trade_id")
         if tid is None:
