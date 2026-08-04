@@ -156,6 +156,7 @@ def verify_once() -> list[dict]:
         candle_open = float(t.get("candle_open_price") or 0)
         candle_close = float(t.get("candle_close_price") or 0)
         ts = float(t.get("timestamp") or 0)
+        poly_outcome = gamma_lookup(cid)
         poly_result = ""
         match = ""
         fallback = False
