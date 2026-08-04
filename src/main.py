@@ -750,33 +750,39 @@ class Rocky:
                     candle_open = trade.btc_price_at_entry
 
                 if candle_open <= 0:
-                    # Watchdog: if trade is old (>30min) and candle fetch keeps
-                    # failing, force-resolve using btc_price_at_entry + current
-                    # snapshot. Prevents permanent ghost trades from Binance outages.
+                    # Genuinely unrecoverable — no price data anywhere.
+                    # Mark void so it stops retried every cycle.
                     age = time.time() - trade.timestamp
-                    if age > 1800 and trade.btc_price_at_entry > 0:
-                        snapshot = self.intel.get_snapshot()
-                        if snapshot.price_usd > 0:
-                            candle_open = trade.btc_price_at_entry
-                            candle_close = snapshot.price_usd
-                            logger.warning(
-                                f"Trade #{trade.trade_id}: force-resolving after {age/60:.0f}min "
-                                f"(candle fetch failed) open={candle_open:.2f} close={candle_close:.2f}"
-                            )
-                    if candle_open <= 0:
-                        logger.warning(f"Trade #{trade.trade_id}: no candle open price, skipping")
-                        continue
+                    logger.error(
+                        f"Trade #{trade.trade_id}: no candle open price after all fallbacks "
+                        f"(age {age/60:.0f}min) — marking VOID"
+                    )
+                    trade.result = "void"
+                    trade.candle_close_price = 0.0
+                    self.executor.resolve_trade(trade, won=False)
+                    resolved.append(trade)
+                    continue
 
-                # Fetch the candle close price (current price as proxy,
-                # or the actual 5-min candle close from Binance)
+                # Fetch the candle close price (actual 5-min candle close from Binance)
                 candle_close = self._fetch_candle_close_at(trade.timestamp)
 
                 if candle_close <= 0:
-                    # Fallback: use current price
-                    snapshot = self.intel.get_snapshot()
-                    candle_close = snapshot.price_usd
+                    # Watchdog: trade old + Binance fetch failing → force-resolve
+                    # using entry price as open + current snapshot as close.
+                    age = time.time() - trade.timestamp
+                    if age > 1800:
+                        snapshot = self.intel.get_snapshot()
+                        candle_close = snapshot.price_usd
+                        if candle_close <= 0 and trade.btc_price_at_entry > 0:
+                            candle_close = trade.btc_price_at_entry
+                        if candle_close > 0:
+                            logger.warning(
+                                f"Trade #{trade.trade_id}: force-resolving after {age/60:.0f}min "
+                                f"(Binance fetch failed) open={candle_open:.2f} close={candle_close:.2f}"
+                            )
 
                 if candle_close <= 0:
+                    logger.warning(f"Trade #{trade.trade_id}: no candle close, skipping (will retry)")
                     continue
 
                 # Polymarket resolution: UP wins if close >= open

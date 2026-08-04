@@ -204,6 +204,17 @@ class ExecutionEngine:
         """Resolve a trade after market settlement."""
         record.resolved_at = time.time()
 
+        if getattr(record, "result", None) == "void":
+            # Pre-marked void (no price data) — journal only, no balance/PnL impact.
+            record.payout = 0.0
+            record.pnl = 0.0
+            logger.info(
+                f"Trade #{record.trade_id} VOID — no resolution data, balance unchanged"
+            )
+            self._save_state()
+            self._append_journal(record, resolved=True)
+            return record
+
         if won:
             record.payout = (
                 record.stake_usd / record.entry_price if record.entry_price else 0.0
