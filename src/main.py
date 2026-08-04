@@ -846,28 +846,55 @@ class Rocky:
         return 0.0
 
     def _fetch_candle_close_at(self, trade_timestamp: float) -> float:
-        """Fetch the Binance 5-min candle close price for resolution."""
+        """Fetch the settlement price for resolution.
+
+        As of Aug 7 2026, Polymarket 5-min BTC markets settle via 30-second TWAP
+        (Time-Weighted Average Price) of the Chainlink feed, NOT a single candle close.
+        We approximate this by averaging Binance 1-minute candle closes over the last
+        30 seconds of the 5-min window containing the trade.
+        """
         try:
-            start_ms = int(trade_timestamp * 1000)
+            window_start = int((trade_timestamp // 300) * 300)
+            window_end = window_start + 300
+            twap_start = window_end - 30
+            start_ms = int(twap_start * 1000)
+
             resp = requests.get(
                 f"{self.config.binance_api}/klines",
                 params={
                     "symbol": "BTCUSDT",
-                    "interval": "5m",
-                    "startTime": start_ms - 300000,
-                    "limit": 2,
+                    "interval": "1m",
+                    "startTime": start_ms - 60000,
+                    "endTime": int(window_end * 1000),
+                    "limit": 3,
                 },
                 timeout=10,
             )
             resp.raise_for_status()
             klines = resp.json()
             if klines:
+                closes = []
                 for k in klines:
-                    if k[0] <= start_ms <= k[6]:
-                        return float(k[4])  # close price
-                return float(klines[-1][4])
+                    k_open = k[0] / 1000
+                    k_close_time = k[6] / 1000
+                    if k_close_time > twap_start and k_open < window_end:
+                        closes.append(float(k[4]))
+                if closes:
+                    twap = sum(closes) / len(closes)
+                    return twap
+                # Fallback: single 5m candle close (pre-TWAP behavior)
+                resp2 = requests.get(
+                    f"{self.config.binance_api}/klines",
+                    params={"symbol": "BTCUSDT", "interval": "5m",
+                            "startTime": int(window_start * 1000), "limit": 1},
+                    timeout=10,
+                )
+                resp2.raise_for_status()
+                k5 = resp2.json()
+                if k5:
+                    return float(k5[0][4])
         except Exception as e:
-            logger.warning(f"Failed to fetch candle close: {e}")
+            logger.warning(f"Failed to fetch TWAP close: {e}")
         return 0.0
 
     def _print_stats(self):

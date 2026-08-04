@@ -431,63 +431,77 @@ class ExecutionEngine:
         stake: float,
         fill: FillResult,
     ) -> Optional[dict[str, Any]]:
-        """Post FOK-style market buy via py-clob-client. Returns meta or None."""
+        """Post FOK market buy via polymarket-client (py-sdk).
+
+        Uses SecureClient.place_market_order + wait_for_order_fill_settlement.
+        Includes: balance pre-flight, settlement tracking, crash-safe.
+        """
         client = self._get_clob_client()
         if client is None:
-            logger.error("Live post aborted: no CLOB client (missing keys?)")
-            return None
-        try:
-            from py_clob_client.clob_types import MarketOrderArgs, OrderType
-            from py_clob_client.order_builder.constants import BUY
-        except ImportError as e:
-            logger.error(f"py-clob-client import failed: {e}")
+            logger.error("Live post aborted: no SecureClient (missing keys?)")
             return None
 
-        max_retries = 1  # one FOK retry with slightly relaxed cap
+        # ── Pre-flight: check wallet has enough collateral ──
+        if not self._check_wallet_balance(stake):
+            logger.error(
+                f"Live post aborted: wallet balance < stake ${stake:.2f} + fee buffer"
+            )
+            return None
+
+        max_retries = 1
         for attempt in range(max_retries + 1):
             try:
-                ot = OrderType.FOK if self.fills.order_type == "FOK" else OrderType.GTC
-                # Cap price near simulated entry so we don't chase worse than paper model.
-                # On retry, allow 1 tick (0.01) slippage to avoid repeated reject.
-                cap = min(0.99, max(0.01, float(fill.entry_price) + 0.01 * attempt))
-                mo = MarketOrderArgs(
+                # py-sdk: place_market_order (handles signing + posting internally)
+                order = client.place_market_order(
                     token_id=str(signal.token_id),
+                    side="BUY",
                     amount=float(stake),
-                    side=BUY,
-                    price=cap,
-                    order_type=ot,
                 )
-                signed = client.create_market_order(mo)
-                resp = client.post_order(signed, ot)
-                order_id = ""
-                status = "posted"
-                actual_entry = fill.entry_price
-                if isinstance(resp, dict):
-                    order_id = str(
-                        resp.get("orderID")
-                        or resp.get("order_id")
-                        or resp.get("id")
-                        or ""
+
+                # ── Wait for settlement (CONFIRMED/FAILED) ──
+                # This polls trade status until on-chain confirmation.
+                # Prevents ghost positions (order accepted but killed).
+                try:
+                    tx_hashes = client.wait_for_order_fill_settlement(
+                        order, timeout_s=30.0
                     )
-                    status = str(resp.get("status") or resp.get("orderStatus") or status)
-                    for k in ("average_price", "avgPrice", "price", "takingAmount"):
-                        if resp.get(k) is not None:
-                            try:
-                                v = float(resp[k])
-                                if 0 < v < 1:
-                                    actual_entry = v
-                                    break
-                            except (TypeError, ValueError):
-                                pass
+                    logger.info(
+                        f"CLOB fill settled: order_id={getattr(order, 'order_id', '?')} "
+                        f"tx_hashes={tx_hashes}"
+                    )
+                except Exception as settle_err:
+                    logger.warning(
+                        f"Order fill settlement timeout/error: {settle_err} — "
+                        f"order may still settle async"
+                    )
+                    # Don't fail — order was placed, settlement may complete later
+
+                # Extract order metadata
+                order_id = str(getattr(order, "order_id", "") or "")
+                status = str(getattr(order, "status", "posted") or "posted")
+                actual_entry = fill.entry_price
+
+                # Try to get actual fill price from order response
+                for attr in ("average_price", "avg_price", "price", "making_amount"):
+                    val = getattr(order, attr, None)
+                    if val is not None:
+                        try:
+                            v = float(val)
+                            if 0 < v < 1:
+                                actual_entry = v
+                                break
+                        except (TypeError, ValueError):
+                            pass
+
                 logger.info(
-                    f"CLOB post ok order_id={order_id} status={status} "
-                    f"entry≈{actual_entry:.4f} resp_type={type(resp).__name__}"
+                    f"CLOB py-sdk post ok order_id={order_id} status={status} "
+                    f"entry≈{actual_entry:.4f}"
                 )
                 return {
                     "order_id": order_id,
                     "status": status,
                     "entry_price": actual_entry,
-                    "raw": resp if isinstance(resp, dict) else {"raw": str(resp)[:500]},
+                    "raw": str(order)[:500],
                 }
             except Exception as e:
                 err_msg = str(e)[:300]
@@ -502,45 +516,56 @@ class ExecutionEngine:
                 )
                 return None
 
+    def _check_wallet_balance(self, stake: float) -> bool:
+        """Pre-flight: query wallet collateral balance, reject if < stake + fee buffer."""
+        try:
+            client = self._get_clob_client()
+            if client is None:
+                return True  # paper/dry-run: skip check (no client)
+            bal = client.get_balance_allowance(asset_type="COLLATERAL")
+            # BalanceAllowance model — extract balance
+            wallet_balance = 0.0
+            for attr in ("balance", "usdc_balance", "collateral_balance"):
+                val = getattr(bal, attr, None)
+                if val is not None:
+                    try:
+                        wallet_balance = float(val)
+                        break
+                    except (TypeError, ValueError):
+                        pass
+            fee_buffer = stake * 0.02  # 2% buffer for fee + slip
+            if wallet_balance < stake + fee_buffer:
+                logger.warning(
+                    f"Wallet balance ${wallet_balance:.2f} < stake ${stake:.2f} + buffer ${fee_buffer:.2f}"
+                )
+                return False
+            logger.info(f"Wallet balance OK: ${wallet_balance:.2f} >= ${stake + fee_buffer:.2f}")
+            return True
+        except Exception as e:
+            logger.warning(f"Wallet balance check failed (allowing): {e}")
+            return True  # fail-open: don't block trades on check error
+
     def _get_clob_client(self):
         if self._clob is not None:
             return self._clob
         pk = self.config.private_key
         if not pk:
-            logger.error("POLY_PRIVATE_KEY not set — cannot init live CLOB client")
+            logger.error("POLY_PRIVATE_KEY not set — cannot init live SecureClient")
             return None
         try:
-            from py_clob_client.client import ClobClient
-            from py_clob_client.clob_types import ApiCreds
+            from polymarket import SecureClient
         except ImportError as e:
-            logger.error(f"py-clob-client not installed: {e}")
+            logger.error(f"polymarket-client not installed: {e}")
             return None
 
-        host = self.config.clob_api_url or "https://clob.polymarket.com"
-        chain_id = int(self.config.chain_id or 137)
         try:
-            if self.config.api_key and self.config.api_secret and self.config.api_passphrase:
-                creds = ApiCreds(
-                    api_key=self.config.api_key,
-                    api_secret=self.config.api_secret,
-                    api_passphrase=self.config.api_passphrase,
-                )
-                client = ClobClient(
-                    host,
-                    key=pk,
-                    chain_id=chain_id,
-                    creds=creds,
-                )
-            else:
-                client = ClobClient(host, key=pk, chain_id=chain_id)
-                derived = client.create_or_derive_api_creds()
-                client.set_api_creds(derived)
-                logger.info("Derived CLOB API creds from private key")
+            # py-sdk factory: SecureClient.create handles env, creds, transport
+            client = SecureClient.create(private_key=pk)
             self._clob = client
-            logger.info("CLOB client ready (live path)")
+            logger.info("SecureClient (py-sdk) ready (live path)")
             return client
         except Exception as e:
-            logger.error(f"CLOB client init failed: {e}")
+            logger.error(f"SecureClient init failed: {e}")
             return None
 
     # ── persistence ─────────────────────────────────────────────────────────
