@@ -53,8 +53,8 @@ updates = {
   'ROCKY_FLIP_1M_BPS': '2',
   'ROCKY_SNIPER_ENABLED': 'true',
   'LOG_LEVEL': 'INFO',
+  'BINANCE_API': 'https://data-api.binance.vision/api/v3',
 }
-kv.update(updates)
 lines = ['# Rocky paper + Edge Pack + Telegram @gracerockyy_bot']
 for k,v in updates.items():
     lines.append(f'{k}={v}')

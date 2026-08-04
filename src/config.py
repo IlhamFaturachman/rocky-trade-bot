@@ -33,7 +33,7 @@ class Config:
 
     # BTC price data sources
     coingecko_api: str = "https://api.coingecko.com/api/v3"
-    binance_api: str = "https://api.binance.com/api/v3"
+    binance_api: str = os.environ.get("BINANCE_API", "https://api.binance.com/api/v3")
 
     # Risk management (tighter defaults — 5m markets are noisy)
     max_risk_pct: float = 0.10        # Max 10% of balance per trade
