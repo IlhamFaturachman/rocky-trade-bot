@@ -29,7 +29,7 @@ from src.decision_v2 import DecisionEngineV2
 from src.executor import ExecutionEngine
 from src.notifier import TelegramNotifier
 from src.edge import EdgeGate
-from src.features import build_cycle_features, tape_fair_p_up, best_bid_ask
+from src.twap_source import TwapSource
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -88,6 +88,7 @@ class Rocky:
         self.data_collect = os.environ.get("ROCKY_DATA_COLLECT", "true").lower() in (
             "1", "true", "yes",
         )
+        self.twap = TwapSource()
 
     def run(self):
         """Main trading loop."""
@@ -108,6 +109,13 @@ class Rocky:
         )
         logger.info(f"   Data collect (shadow): {self.data_collect}")
         logger.info("=" * 60)
+
+        # Start Polymarket RTDS TWAP source (Chainlink 30s BTC/USD settlement feed)
+        self.twap.start()
+        logger.info(
+            f"   TWAP source: Polymarket RTDS Chainlink 30s "
+            f"({'connecting...' if not self.twap.connected else 'connected'})"
+        )
 
         # Reload unresolved opens from journal (survives restarts — fixes stuck pending)
         reloaded = self._reload_pending_from_journal()
@@ -850,15 +858,23 @@ class Rocky:
 
         As of Aug 7 2026, Polymarket 5-min BTC markets settle via 30-second TWAP
         (Time-Weighted Average Price) of the Chainlink feed, NOT a single candle close.
-        We approximate this by averaging Binance 1-minute candle closes over the last
-        30 seconds of the 5-min window containing the trade.
-        """
-        try:
-            window_start = int((trade_timestamp // 300) * 300)
-            window_end = window_start + 300
-            twap_start = window_end - 30
-            start_ms = int(twap_start * 1000)
 
+        Primary source: Polymarket RTDS WebSocket (Chainlink TWAP 30s) — the EXACT
+        settlement feed Polymarket uses. Cached in TwapSource background thread.
+        Fallback: Binance 1s klines averaged over the last 30s of the window.
+        """
+        window_start = int((trade_timestamp // 300) * 300)
+        window_end = window_start + 300
+
+        # ── Primary: Polymarket RTDS Chainlink TWAP ──
+        twap = self.twap.get_twap_at(window_end, tolerance=10)
+        if twap and twap > 0:
+            logger.debug(f"TWAP from RTDS: ${twap:,.2f} (window_end={window_end})")
+            return twap
+
+        # ── Fallback: Binance 1s klines average over last 30s ──
+        try:
+            twap_start = window_end - 30
             resp = requests.get(
                 f"{self.config.binance_api}/klines",
                 params={
@@ -876,9 +892,13 @@ class Rocky:
                 closes = [float(k[4]) for k in klines]
                 if closes:
                     twap = sum(closes) / len(closes)
+                    logger.debug(
+                        f"TWAP from Binance fallback: ${twap:,.2f} "
+                        f"({len(closes)} samples)"
+                    )
                     return twap
         except Exception as e:
-            logger.warning(f"Failed to fetch TWAP close: {e}")
+            logger.warning(f"TWAP fetch failed (RTDS miss + Binance error): {e}")
         return 0.0
 
     def _print_stats(self):
