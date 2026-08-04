@@ -156,6 +156,10 @@ def verify_once() -> list[dict]:
         if tid in verified:
             continue
         cid = str(t.get("condition_id") or "")
+        direction = t.get("direction", "")
+        rocky_result = t.get("result", "")
+        candle_open = float(t.get("candle_open_price") or 0)
+        candle_close = float(t.get("candle_close_price") or 0)
         ts = float(t.get("timestamp") or 0)
         # Binance cross-check: re-fetch the 5m candle close independently
         # (Rocky also uses Binance, but this re-fetches fresh — catches bugs).
