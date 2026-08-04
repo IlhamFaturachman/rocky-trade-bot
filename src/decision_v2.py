@@ -394,13 +394,14 @@ class DecisionEngineV2:
                 try:
                     data = resp.json()
                 except requests.exceptions.JSONDecodeError:
-                    # Some gateways append SSE trailers (e.g. "data: [DONE]") to
-                    # non-stream responses. Strip trailing junk before parsing.
+                    # Gateways may return SSE frames even for non-stream
+                    # requests (9router opencode-free does this). If the body
+                    # is a stream, parse the LAST complete frame; otherwise
+                    # strip a trailing "data: [DONE]" marker and re-try.
                     raw = resp.text
-                    end = raw.rfind("}")
-                    if end > 0:
-                        raw = raw[: end + 1]
-                    data = json.loads(raw)
+                    data = self._parse_ssE_or_json(raw)
+                    if data is None:
+                        raise
                 msg = data["choices"][0]["message"]
                 text = msg.get("content") or ""
                 # Some models put JSON only in reasoning; fall back if content empty
@@ -443,6 +444,43 @@ class DecisionEngineV2:
                     continue
                 return None
         logger.error(f"LLM failed after retries: {last_err}")
+        return None
+
+    def _parse_ssE_or_json(self, raw: str) -> Optional[dict]:
+        """Parse a body that may be raw JSON or leaked SSE frames.
+
+        Some gateways (9router opencode-free) return SSE frames even for
+        non-stream requests. Strategy:
+        1. Try whole body as JSON.
+        2. If "data: [DONE]" is present, take everything before it.
+        3. If multiple "data: {...}" frames exist, parse the LAST frame.
+        4. Last resort: strip to the final balanced "}" and re-try.
+        """
+        raw = raw.strip()
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+
+        done = raw.find("data: [DONE]")
+        if done > 0:
+            raw = raw[:done].strip()
+
+        # Last SSE frame: "data: {...}"
+        idx = raw.rfind("data: {")
+        if idx >= 0:
+            s = raw.find("{", idx)
+            try:
+                return json.loads(raw[s:])
+            except json.JSONDecodeError:
+                pass
+
+        end = raw.rfind("}")
+        if end > 0:
+            try:
+                return json.loads(raw[: end + 1])
+            except json.JSONDecodeError:
+                pass
         return None
 
     def _parse_response(self, response: str) -> Optional[dict]:
