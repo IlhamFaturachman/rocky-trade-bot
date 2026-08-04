@@ -101,8 +101,10 @@ class TwapSource:
                     if val_str is not None and ts > 0:
                         price = float(str(val_str))
                         if price > 0:
+                            # RTDS timestamp is in milliseconds — normalize to seconds
+                            ts_sec = ts // 1000
                             with self._lock:
-                                self._cache.append((ts, price))
+                                self._cache.append((ts_sec, price))
                 except (json.JSONDecodeError, ValueError, TypeError, KeyError):
                     continue
 
