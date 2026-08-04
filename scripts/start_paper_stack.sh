@@ -5,7 +5,7 @@ mkdir -p logs
 
 # stop old
 pkill -9 -f 'src/main.py' 2>/dev/null || true
-pkill -9 -f 'src/dashboard.py' 2>/dev/null || true
+pkill -9 -f 'verify_trades' 2>/dev/null || true
 sleep 1
 
 # write .env
@@ -83,6 +83,8 @@ echo "dashboard_pid $!"
 nohup ./.venv/bin/python3 src/main.py --mode paper --engine v2 --interval 60 --balance 100 > logs/paper.stdout 2>&1 &
 echo "paper_pid $!"
 sleep 3
-pgrep -af 'src/main.py|src/dashboard.py' || true
-curl -sS --max-time 3 http://127.0.0.1:8787/api/status | head -c 400; echo
-tail -20 logs/paper.stdout 2>/dev/null || tail -20 logs/rocky.log 2>/dev/null || true
+pgrep -af 'src/main.py|src/dashboard.py|verify_trades' || true
+
+# start verify_trades (Polymarket/Binance cross-check, survives restarts)
+nohup ./.venv/bin/python3 scripts/verify_trades.py --loop 60 --stop-after 0 > logs/verify.log 2>&1 &
+echo "verify_pid $!"
