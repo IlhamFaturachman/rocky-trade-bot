@@ -365,6 +365,9 @@ class DecisionEngineV2:
             "stream": False,  # some gateways (9router opencode-free) leak SSE otherwise
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,
+            # DeepSeek reasoning mode burns the whole token budget on
+            # chain-of-thought and never emits the final JSON. Disable it.
+            "thinking": {"type": "disabled"},
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
