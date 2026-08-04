@@ -203,7 +203,8 @@ class DecisionEngineV2:
         self.max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "350"))
         self.temperature = float(os.environ.get("LLM_TEMPERATURE", "0.15"))
         self.min_edge = float(os.environ.get("ROCKY_MIN_EDGE", "0.06"))
-        self.max_entry_price = float(os.environ.get("ROCKY_MAX_ENTRY_PRICE", "0.72"))
+        self.model = os.environ.get("LLM_MODEL", "grok-4.5")
+        self.fallback_model = os.environ.get("LLM_FALLBACK_MODEL", "")
         self.min_entry_price = float(os.environ.get("ROCKY_MIN_ENTRY_PRICE", "0.28"))
         self.timeout = int(os.environ.get("LLM_TIMEOUT_SECONDS", "45"))
         self.max_attempts = int(os.environ.get("LLM_MAX_ATTEMPTS", "3"))
@@ -382,7 +383,24 @@ class DecisionEngineV2:
                     json=payload,
                     timeout=to,
                 )
-                if resp.status_code in (429, 502, 503, 504) and attempt < max_attempts:
+                if resp.status_code == 429 and attempt < max_attempts:
+                    ra = resp.headers.get("Retry-After")
+                    ra_s = float(ra) if ra and ra.isdigit() else 0
+                    # If upstream says "wait 300s" (Zendy rate window), retrying
+                    # in 1.2s is futile — bail to fallback model if configured.
+                    if ra_s and ra_s > 30 and self.fallback_model:
+                        logger.warning(
+                            f"LLM 429 Retry-After={ra_s:.0f}s — switching to fallback "
+                            f"{self.fallback_model}"
+                        )
+                        payload["model"] = self.fallback_model
+                        continue
+                    logger.warning(
+                        f"LLM 429 attempt {attempt}/{max_attempts} — retry"
+                    )
+                    time.sleep(min(max(ra_s or 0, 1.2 * attempt), 15))
+                    continue
+                if resp.status_code in (502, 503, 504) and attempt < max_attempts:
                     logger.warning(
                         f"LLM {resp.status_code} attempt {attempt}/{max_attempts} — retry"
                     )
