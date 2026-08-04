@@ -86,6 +86,7 @@ class ExecutionEngine:
         self.trades: list[TradeRecord] = []
         self._clob = None
         self._load_state()
+        self._recover_pending_posts()
 
     # ── public API ──────────────────────────────────────────────────────────
 
@@ -133,6 +134,12 @@ class ExecutionEngine:
                 logger.warning(
                     "ROCKY_LIVE_DRY_RUN=true — fill sim only, no CLOB post."
                 )
+            # Crash-safe: persist deducted balance + trade_count BEFORE post,
+            # and journal a pending_post entry so a crash between place_market_order
+            # and the opened journal leaves a recoverable trail.
+            if post:
+                self._save_state()
+                self._journal_pending_post(self.trade_count, signal, stake)
             record = self._execute_unified(
                 signal,
                 stake,
@@ -641,6 +648,82 @@ class ExecutionEngine:
                 f.write(json.dumps(entry, default=str) + "\n")
         except Exception as e:
             logger.error(f"Failed to write journal: {e}")
+
+    def _journal_pending_post(
+        self, trade_id: int, signal: TradeSignal, stake: float
+    ) -> None:
+        """Write a pending_post journal entry BEFORE place_market_order.
+
+        If the process dies before the matching 'opened' entry is written,
+        _recover_pending_posts can detect the orphan and re-sync balance /
+        flag it for manual review.
+        """
+        try:
+            os.makedirs(os.path.dirname(self.config.journal_path), exist_ok=True)
+            entry = {
+                "_event": "pending_post",
+                "trade_id": trade_id,
+                "timestamp": time.time(),
+                "mode": "live",
+                "direction": signal.direction,
+                "stake_usd": stake,
+                "token_id": str(getattr(signal, "token_id", "") or ""),
+                "condition_id": getattr(signal.market, "condition_id", "")
+                if signal.market
+                else "",
+            }
+            with open(self.config.journal_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as e:
+            logger.error(f"Failed to write pending_post journal: {e}")
+
+    def _recover_pending_posts(self) -> None:
+        """On startup, scan journal for pending_post entries with no matching 'opened'.
+
+        An orphaned pending_post means we debited balance + incremented trade_count,
+        then crashed before the order fully settled / opened journal entry was written.
+        We can't know if the CLOB order succeeded, so we log a loud WARNING for manual
+        review and refund the balance (safer to refund + miss than to double-spend).
+        The trade is NOT counted as a real trade.
+        """
+        try:
+            if not os.path.exists(self.config.journal_path):
+                return
+            pending: dict[int, dict] = {}
+            opened: set[int] = set()
+            with open(self.config.journal_path, "r", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    ev = entry.get("_event")
+                    tid = entry.get("trade_id")
+                    if ev == "pending_post" and isinstance(tid, int):
+                        pending[tid] = entry
+                    elif ev == "opened" and isinstance(tid, int):
+                        opened.add(tid)
+            orphans = [tid for tid in pending if tid not in opened]
+            if not orphans:
+                return
+            for tid in orphans:
+                stake = float(pending[tid].get("stake_usd", 0) or 0)
+                logger.warning(
+                    f"RECOVER orphan pending_post trade #{tid}: refunding ${stake:.2f} "
+                    f"— verify on Polymarket UI whether order actually filled. "
+                    f"If yes, manually reconcile balance."
+                )
+                self.balance = round(self.balance + stake, 4)
+                self.trade_count = max(self.trade_count, tid)
+            self._save_state()
+            logger.warning(
+                f"Recovery complete: {len(orphans)} orphaned pending_post(s) refunded."
+            )
+        except Exception as e:
+            logger.error(f"Failed to scan pending_post recovery: {e}")
 
     def reset_daily(self):
         self.daily_starting_balance = self.balance

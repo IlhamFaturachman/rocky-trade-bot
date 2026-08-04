@@ -863,36 +863,20 @@ class Rocky:
                 f"{self.config.binance_api}/klines",
                 params={
                     "symbol": "BTCUSDT",
-                    "interval": "1m",
-                    "startTime": start_ms - 60000,
+                    "interval": "1s",
+                    "startTime": int(twap_start * 1000),
                     "endTime": int(window_end * 1000),
-                    "limit": 3,
+                    "limit": 60,
                 },
                 timeout=10,
             )
             resp.raise_for_status()
             klines = resp.json()
             if klines:
-                closes = []
-                for k in klines:
-                    k_open = k[0] / 1000
-                    k_close_time = k[6] / 1000
-                    if k_close_time > twap_start and k_open < window_end:
-                        closes.append(float(k[4]))
+                closes = [float(k[4]) for k in klines]
                 if closes:
                     twap = sum(closes) / len(closes)
                     return twap
-                # Fallback: single 5m candle close (pre-TWAP behavior)
-                resp2 = requests.get(
-                    f"{self.config.binance_api}/klines",
-                    params={"symbol": "BTCUSDT", "interval": "5m",
-                            "startTime": int(window_start * 1000), "limit": 1},
-                    timeout=10,
-                )
-                resp2.raise_for_status()
-                k5 = resp2.json()
-                if k5:
-                    return float(k5[0][4])
         except Exception as e:
             logger.warning(f"Failed to fetch TWAP close: {e}")
         return 0.0
