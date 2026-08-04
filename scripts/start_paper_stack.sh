@@ -26,7 +26,7 @@ updates = {
   # LLM via local 9router gateway -> Zendy DeepSeek V4 Flash (thinking disabled)
   'LLM_API_URL': 'http://127.0.0.1:20128/v1/chat/completions',
   'LLM_API_KEY': 'sk-ec29591901e9df02-fmjzzv-9987fd46',
-  'LLM_MODEL': 'zd-deepseek/deepseek',
+  'LLM_MODEL': 'zendy/deepseek',
   'LLM_MAX_TOKENS': '1024',
   'LLM_TEMPERATURE': '0.15',
   'LLM_TIMEOUT_SECONDS': '90',
