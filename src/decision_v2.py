@@ -34,13 +34,13 @@ A $0.01 difference decides the market.
 ## Your ONLY job
 Estimate P(UP) and P(DOWN), compare to Polymarket token prices, and output a direction whenever there is ANY directional lean — even a small one. Do NOT default to skip.
 
-## Edge definition (compute honestly)
+## Edge definition (compute, do NOT gate on it)
 edge_up = your_p_up - yes_price
 edge_down = your_p_down - no_price
-Prefer trades where the chosen edge >= 0.06. If the edge is smaller but a directional lean still exists, output the direction with confidence 55-62 and the computed (smaller) edge. The executor gates on edge separately — your job is to report direction + edge truthfully, not to pre-filter.
+The executor gates on edge separately. YOU must always output a direction with the computed edge — even if edge is small or negative. NEVER skip just because edge < 0.06. A small edge with a directional lean is still a valid signal; report it honestly.
 
-## When to SKIP (rare)
-Only SKIP when there is genuinely NO directional information: flat tape, price sitting exactly on the open, equal odds, zero displacement, conflicting signals that cancel out. A slight lean is tradeable — output it.
+## When to SKIP (truly rare — almost never)
+Only SKIP when price is sitting EXACTLY on the open (delta = 0 bps) AND the last 3 candles are flat AND momentum is "neutral". If price is even 1 bps above or below the open, output UP or DOWN respectively with confidence 55-60. When in doubt between up and down, pick the side price is currently on relative to the open.
 
 ## What actually matters for 5 minutes (priority order)
 1. Distance of CURRENT price vs PRICE TO BEAT (signed $ and bps) — the dominant signal
