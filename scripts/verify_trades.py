@@ -30,8 +30,9 @@ ROOT = Path(__file__).resolve().parents[1]
 TRADES = ROOT / "logs" / "trades.jsonl"
 VERIFY_CSV = ROOT / "logs" / "verify.csv"
 
-GAMMA_URL = "https://gamma-api.polymarket.com/markets/{cid}"
-BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
+GAMMA_URL = "https://gamma-api.polymarket.com/markets?condition_id={cid}"
+BINANCE_BASE = os.environ.get("BINANCE_API", "https://data-api.binance.vision/api/v3")
+BINANCE_KLINES = f"{BINANCE_BASE}/klines"
 
 
 def load_trades() -> list[dict]:
@@ -75,10 +76,13 @@ def gamma_lookup(condition_id: str) -> str | None:
     except Exception as e:
         print(f"  gamma error for {condition_id}: {e}", file=sys.stderr)
         return None
-    # gamma returns a single market object for condition_id path
+    # gamma returns a list for condition_id query; take first market
+    if isinstance(data, list):
+        if not data:
+            return None
+        data = data[0]
     if not isinstance(data, dict):
         return None
-    # Look for outcome indicators: umaResolution, closedTime, outcomes, outcomePrices
     closed = data.get("closedTime") or data.get("endDate")
     if not closed:
         return None
@@ -152,33 +156,27 @@ def verify_once() -> list[dict]:
         candle_open = float(t.get("candle_open_price") or 0)
         candle_close = float(t.get("candle_close_price") or 0)
         ts = float(t.get("timestamp") or 0)
-
-        poly_outcome = gamma_lookup(cid)
-
-        # If gamma not resolved and trade is old enough, try Binance fallback
         poly_result = ""
         match = ""
         fallback = False
-        if poly_outcome is None:
+        if poly_outcome:
+            poly_result = poly_outcome
+            rocky_won = rocky_result == "win"
+            poly_won = poly_outcome == direction
+            match = "yes" if (rocky_won == poly_won) else "NO"
+        else:
             age = time.time() - ts
             if age > 180:
-                # Binance fallback: recompute from candle
+                # Binance fallback: recompute outcome from candle close vs open
                 bc = binance_candle_close(ts) or candle_close
                 if bc and candle_open:
-                    if bc >= candle_open:
-                        poly_result = "up" if direction == "up" else "down_mirror"
-                    else:
-                        poly_result = "down" if direction == "up" else "up_mirror"
+                    poly_result = "up" if bc >= candle_open else "down"
                     fallback = True
-                    match = "pending"
-        else:
-            poly_result = poly_outcome
-            # Compare: rocky_result win = direction matches outcome
-            rocky_won = rocky_result == "win"
-            poly_won = (poly_outcome == direction)
-            match = "yes" if (rocky_won == poly_won) else "NO"
+                    rocky_won = rocky_result == "win"
+                    poly_won = poly_result == direction
+                    match = "yes" if (rocky_won == poly_won) else "NO"
 
-        if poly_result or match == "pending":
+        if poly_result:
             row = {
                 "trade_id": tid,
                 "condition_id": cid,
