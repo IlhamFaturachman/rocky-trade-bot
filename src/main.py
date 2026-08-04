@@ -29,6 +29,7 @@ from src.decision_v2 import DecisionEngineV2
 from src.executor import ExecutionEngine
 from src.notifier import TelegramNotifier
 from src.edge import EdgeGate
+from src.features import build_cycle_features, tape_fair_p_up, best_bid_ask
 from src.twap_source import TwapSource
 
 # ── Logging ──────────────────────────────────────────────────────────────────
