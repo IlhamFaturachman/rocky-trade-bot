@@ -5,6 +5,7 @@ mkdir -p logs
 
 # stop old
 pkill -9 -f 'src/main.py' 2>/dev/null || true
+pkill -9 -f 'src/dashboard.py' 2>/dev/null || true
 pkill -9 -f 'verify_trades' 2>/dev/null || true
 sleep 1
 
