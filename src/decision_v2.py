@@ -203,6 +203,7 @@ class DecisionEngineV2:
         self.max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "350"))
         self.temperature = float(os.environ.get("LLM_TEMPERATURE", "0.15"))
         self.min_edge = float(os.environ.get("ROCKY_MIN_EDGE", "0.06"))
+        self.max_entry_price = float(os.environ.get("ROCKY_MAX_ENTRY_PRICE", "0.72"))
         self.model = os.environ.get("LLM_MODEL", "grok-4.5")
         self.fallback_model = os.environ.get("LLM_FALLBACK_MODEL", "")
         self.min_entry_price = float(os.environ.get("ROCKY_MIN_ENTRY_PRICE", "0.28"))
