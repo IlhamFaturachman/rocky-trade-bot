@@ -416,6 +416,47 @@ def test_raw_llm_response_stored():
     assert signal.raw_llm_response == raw_content
     print("✅ Raw LLM response storage test passed")
 
+def test_parse_prose_with_embedded_json():
+    """Prose-wrapped JSON (cheap free models) must still parse."""
+    config = Config()
+    os.environ["LLM_API_KEY"] = "test-key"
+    engine = DecisionEngineV2(config)
+
+    # Model rambles before/after and even mid-object; last balanced object wins.
+    prose = (
+        "We need answer JSON only. Need compute p_up from the market data above. "
+        'Let me think: current price above open by 12 bps, momentum bullish. '
+        '{"direction": "up", "confidence": 71, "p_up": 0.63, "edge": 0.09, '
+        '"reasoning": ["above open", "bullish momentum"]} '
+        "So that's my final answer, no more text after this."
+    )
+    MockSession._next_response = MockResponse({
+        "choices": [{"message": {"content": prose}}]
+    })
+    signal = engine.analyze(make_market(), make_snapshot(), orderbook={})
+    assert signal is not None
+    assert signal.direction == "up"
+    assert signal.confidence == 0.71
+    print("✅ Prose-wrapped JSON parsing test passed")
+
+def test_parse_trailing_comma_json():
+    """Trailing commas in LLM JSON must be tolerated."""
+    config = Config()
+    os.environ["LLM_API_KEY"] = "test-key"
+    engine = DecisionEngineV2(config)
+
+    sloppy = (
+        '{"direction": "down", "confidence": 74, "p_up": 0.42, '
+        '"reasoning": ["below open",],} trailing junk }'
+    )
+    MockSession._next_response = MockResponse({
+        "choices": [{"message": {"content": sloppy}}]
+    })
+    signal = engine.analyze(make_market(), make_snapshot(), orderbook={})
+    assert signal is not None
+    assert signal.direction == "down"
+    assert signal.confidence == 0.74
+    print("✅ Trailing-comma JSON parsing test passed")
 
 if __name__ == "__main__":
     print("\n🪨 Rocky V2 (LLM Engine — OpenAI-compatible) Tests\n")
@@ -429,4 +470,6 @@ if __name__ == "__main__":
     test_confidence_clamping()
     test_no_api_key()
     test_raw_llm_response_stored()
-    print(f"\n🎉 All V2 tests passed! (10 tests)\n")
+    test_parse_prose_with_embedded_json()
+    test_parse_trailing_comma_json()
+    print(f"\n🎉 All V2 tests passed! (12 tests)\n")

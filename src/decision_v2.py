@@ -455,20 +455,47 @@ class DecisionEngineV2:
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            start = text.find("{")
-            end = text.rfind("}") + 1
-            if start >= 0 and end > start:
-                chunk = text[start:end]
+            pass
+
+        # Scan for every brace-balanced JSON object; return the last valid one.
+        # Some cheap models wrap the JSON in prose or repeat examples before the
+        # final answer, so naive first-{/last-} extraction is not enough.
+        candidates = []
+        depth = 0
+        in_str = False
+        esc = False
+        start = -1
+        for i, ch in enumerate(text):
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    candidates.append(text[start : i + 1])
+                    start = -1
+        for chunk in reversed(candidates):
+            try:
+                return json.loads(chunk)
+            except json.JSONDecodeError:
+                # trailing commas / soft fix
+                soft = re.sub(r",\s*}", "}", chunk)
+                soft = re.sub(r",\s*]", "]", soft)
                 try:
-                    return json.loads(chunk)
+                    return json.loads(soft)
                 except json.JSONDecodeError:
-                    # trailing commas / soft fix
-                    soft = re.sub(r",\s*}", "}", chunk)
-                    soft = re.sub(r",\s*]", "]", soft)
-                    try:
-                        return json.loads(soft)
-                    except json.JSONDecodeError as e:
-                        logger.debug(f"JSON parse error: {e}")
+                    continue
         logger.error("Could not parse JSON from LLM response")
         return None
 
