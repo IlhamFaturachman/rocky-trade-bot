@@ -321,7 +321,14 @@ class ExecutionEngine:
             fb = expected_ask if expected_ask > 0 else 0.5
             fb = min(0.99, max(0.01, float(fb)))
             fee_bps = self.fills.fee_bps if self.fills.apply_fee_to_entry else 0.0
-            entry_fb = min(0.99, max(0.01, fb * (1.0 + fee_bps / 10_000.0))) if fee_bps else fb
+            # Dynamic fee: same formula as fill_model (rate * price * (1-price))
+            if fee_bps:
+                rate = fee_bps / 10_000.0
+                fee_frac = rate * fb * (1 - fb)
+                entry_fb = min(0.99, max(0.01, fb * (1.0 + fee_frac)))
+                fee_bps = fee_frac * 10_000
+            else:
+                entry_fb = fb
             fill = FillResult(
                 ok=True,
                 entry_price=entry_fb,
@@ -436,52 +443,64 @@ class ExecutionEngine:
             logger.error(f"py-clob-client import failed: {e}")
             return None
 
-        try:
-            ot = OrderType.FOK if self.fills.order_type == "FOK" else OrderType.GTC
-            # Cap price near simulated entry so we don't chase worse than paper model
-            price_cap = min(0.99, max(0.01, float(fill.entry_price)))
-            mo = MarketOrderArgs(
-                token_id=str(signal.token_id),
-                amount=float(stake),
-                side=BUY,
-                price=price_cap,
-                order_type=ot,
-            )
-            signed = client.create_market_order(mo)
-            resp = client.post_order(signed, ot)
-            order_id = ""
-            status = "posted"
-            actual_entry = fill.entry_price
-            if isinstance(resp, dict):
-                order_id = str(
-                    resp.get("orderID")
-                    or resp.get("order_id")
-                    or resp.get("id")
-                    or ""
+        max_retries = 1  # one FOK retry with slightly relaxed cap
+        for attempt in range(max_retries + 1):
+            try:
+                ot = OrderType.FOK if self.fills.order_type == "FOK" else OrderType.GTC
+                # Cap price near simulated entry so we don't chase worse than paper model.
+                # On retry, allow 1 tick (0.01) slippage to avoid repeated reject.
+                cap = min(0.99, max(0.01, float(fill.entry_price) + 0.01 * attempt))
+                mo = MarketOrderArgs(
+                    token_id=str(signal.token_id),
+                    amount=float(stake),
+                    side=BUY,
+                    price=cap,
+                    order_type=ot,
                 )
-                status = str(resp.get("status") or resp.get("orderStatus") or status)
-                for k in ("average_price", "avgPrice", "price", "takingAmount"):
-                    if resp.get(k) is not None:
-                        try:
-                            v = float(resp[k])
-                            if 0 < v < 1:
-                                actual_entry = v
-                                break
-                        except (TypeError, ValueError):
-                            pass
-            logger.info(
-                f"CLOB post ok order_id={order_id} status={status} "
-                f"entry≈{actual_entry:.4f} resp_type={type(resp).__name__}"
-            )
-            return {
-                "order_id": order_id,
-                "status": status,
-                "entry_price": actual_entry,
-                "raw": resp if isinstance(resp, dict) else {"raw": str(resp)[:500]},
-            }
-        except Exception as e:
-            logger.error(f"Live CLOB order failed: {e}")
-            return None
+                signed = client.create_market_order(mo)
+                resp = client.post_order(signed, ot)
+                order_id = ""
+                status = "posted"
+                actual_entry = fill.entry_price
+                if isinstance(resp, dict):
+                    order_id = str(
+                        resp.get("orderID")
+                        or resp.get("order_id")
+                        or resp.get("id")
+                        or ""
+                    )
+                    status = str(resp.get("status") or resp.get("orderStatus") or status)
+                    for k in ("average_price", "avgPrice", "price", "takingAmount"):
+                        if resp.get(k) is not None:
+                            try:
+                                v = float(resp[k])
+                                if 0 < v < 1:
+                                    actual_entry = v
+                                    break
+                            except (TypeError, ValueError):
+                                pass
+                logger.info(
+                    f"CLOB post ok order_id={order_id} status={status} "
+                    f"entry≈{actual_entry:.4f} resp_type={type(resp).__name__}"
+                )
+                return {
+                    "order_id": order_id,
+                    "status": status,
+                    "entry_price": actual_entry,
+                    "raw": resp if isinstance(resp, dict) else {"raw": str(resp)[:500]},
+                }
+            except Exception as e:
+                err_msg = str(e)[:300]
+                if attempt < max_retries:
+                    logger.warning(
+                        f"Live CLOB order failed (attempt {attempt+1}/{max_retries+1}): {err_msg} — retrying"
+                    )
+                    time.sleep(0.5)
+                    continue
+                logger.error(
+                    f"Live CLOB order FAILED after {max_retries+1} attempts: {err_msg}"
+                )
+                return None
 
     def _get_clob_client(self):
         if self._clob is not None:

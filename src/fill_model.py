@@ -211,9 +211,17 @@ def walk_buy_asks(
             reason=f"slip {slip:.4f} > max {max_slip:.4f} (bps={cfg.slip_bps})",
         )
 
-    fee_bps = cfg.fee_bps if cfg.apply_fee_to_entry else 0.0
-    entry = vwap * (1.0 + fee_bps / 10_000.0) if fee_bps else vwap
+    # Polymarket dynamic taker fee: fee = rate * price * (1-price)
+    # Not flat — peaks at mid-price, drops at extremes.
+    fee_frac = 0.0
+    if cfg.apply_fee_to_entry and cfg.fee_bps > 0:
+        rate = cfg.fee_bps / 10_000.0
+        fee_frac = rate * vwap * (1 - vwap)
+        entry = vwap * (1.0 + fee_frac)
+    else:
+        entry = vwap
     entry = min(0.99, max(0.01, entry))
+    fee_bps_applied = fee_frac * 10_000
 
     if entry > cfg.max_entry + 1e-9:
         return FillResult(
@@ -225,7 +233,7 @@ def walk_buy_asks(
             filled_usd=filled_usd,
             filled_shares=shares,
             slip_vs_best=slip,
-            fee_bps_applied=fee_bps,
+            fee_bps_applied=fee_bps_applied,
             levels_used=len(used),
             levels=used,
             reason=f"effective entry {entry:.4f} > max_entry {cfg.max_entry:.2f}",
@@ -249,7 +257,7 @@ def walk_buy_asks(
         filled_shares=shares,
         unfilled_usd=max(0.0, remaining),
         slip_vs_best=slip,
-        fee_bps_applied=fee_bps,
+        fee_bps_applied=fee_bps_applied,
         levels_used=len(used),
         levels=used,
         reason="ok",

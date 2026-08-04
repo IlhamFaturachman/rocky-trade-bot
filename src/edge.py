@@ -226,7 +226,16 @@ class EdgeGate:
         ptb_bps = _ptb_bps(price, ptb)
         signed_bps = _signed_ptb_bps(price, ptb)
         range_bps = _recent_range_bps(snapshot)
-        fee_buffer = (cfg.fee_bps + cfg.slip_bps) / 10_000.0
+        # Polymarket dynamic taker fee: fee = rate * price * (1-price)
+        # Peaks ~0.375% at price 0.50, drops to ~0.027% at price 0.10.
+        # Using best ask as proxy for entry price. rate = fee_bps/10000.
+        ask_proxy = float(getattr(market, "yes_price", 0) or 0.5)
+        rate = cfg.fee_bps / 10_000.0
+        dynamic_fee = rate * ask_proxy * (1 - ask_proxy)
+        # Slippage: keep slip_bps as base, but add depth-aware bump if orderbook is thin
+        # (computed later from actual book depth; here use flat as conservative baseline)
+        slip_buffer = cfg.slip_bps / 10_000.0
+        fee_buffer = dynamic_fee + slip_buffer
 
         details = [
             f"t_elapsed={t_elapsed:.0f}s t_left={t_left:.0f}s win={win:.0f}s",

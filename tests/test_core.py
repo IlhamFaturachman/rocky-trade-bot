@@ -177,16 +177,21 @@ def test_executor_paper():
         assert executor.balance == 4.25, f"Balance after trade: {executor.balance} (expected 4.25)"
         print(f"   Executed: ${record.stake_usd:.4f} stake, balance now ${executor.balance:.4f}")
 
-        # Resolve as win. Entry is fee-bumped: 0.50 × (1 + 150bps) = 0.5075,
-        # so shares = 0.75 / 0.5075 and payout = shares × $1.
+        # Resolve as win. Entry is dynamic-fee-bumped:
+        # Polymarket dynamic: fee = rate * price * (1-price)
+        # At 0.50: fee_frac = 0.015 * 0.50 * 0.50 = 0.00375
+        # entry = 0.50 * (1 + 0.00375) = 0.501875
+        # shares = 0.75 / 0.501875, payout = shares × $1.
+        dyn_fee = 0.015 * 0.50 * 0.50
+        entry_dyn = 0.50 * (1 + dyn_fee)
         executor.resolve_trade(record, won=True)
         assert record.result == "win"
-        assert record.payout == pytest.approx(0.75 / 0.5075, rel=1e-9), \
-            f"Payout: {record.payout} (expected {0.75 / 0.5075})"
-        assert record.pnl == pytest.approx(0.75 / 0.5075 - 0.75, rel=1e-9), \
-            f"PnL: {record.pnl} (expected {0.75 / 0.5075 - 0.75})"
-        assert executor.balance == pytest.approx(round(4.25 + 0.75 / 0.5075, 4), rel=1e-9), \
-            f"Balance after win: {executor.balance} (expected {round(4.25 + 0.75 / 0.5075, 4)})"
+        assert record.payout == pytest.approx(0.75 / entry_dyn, rel=1e-9), \
+            f"Payout: {record.payout} (expected {0.75 / entry_dyn})"
+        assert record.pnl == pytest.approx(0.75 / entry_dyn - 0.75, rel=1e-9), \
+            f"PnL: {record.pnl} (expected {0.75 / entry_dyn - 0.75})"
+        assert executor.balance == pytest.approx(round(4.25 + 0.75 / entry_dyn, 4), rel=1e-9), \
+            f"Balance after win: {executor.balance} (expected {round(4.25 + 0.75 / entry_dyn, 4)})"
         print(f"   WIN: payout ${record.payout:.4f}, P&L ${record.pnl:+.4f} → balance ${executor.balance:.4f}")
 
         # Verify journal
