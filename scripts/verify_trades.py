@@ -156,31 +156,19 @@ def verify_once() -> list[dict]:
         if tid in verified:
             continue
         cid = str(t.get("condition_id") or "")
-        direction = t.get("direction", "")
-        rocky_result = t.get("result", "")
-        candle_open = float(t.get("candle_open_price") or 0)
-        candle_close = float(t.get("candle_close_price") or 0)
         ts = float(t.get("timestamp") or 0)
-        poly_outcome = gamma_lookup(cid)
+        # Binance cross-check: re-fetch the 5m candle close independently
+        # (Rocky also uses Binance, but this re-fetches fresh — catches bugs).
+        # Gamma API can't resolve Polymarket 5-min BTC series markets reliably.
+        bc = binance_candle_close(ts)
         poly_result = ""
         match = ""
-        fallback = False
-        if poly_outcome:
-            poly_result = poly_outcome
+        fallback = True
+        if bc and candle_open:
+            poly_result = "up" if bc >= candle_open else "down"
             rocky_won = rocky_result == "win"
-            poly_won = poly_outcome == direction
+            poly_won = poly_result == direction
             match = "yes" if (rocky_won == poly_won) else "NO"
-        else:
-            age = time.time() - ts
-            if age > 180:
-                # Binance fallback: recompute outcome from candle close vs open
-                bc = binance_candle_close(ts) or candle_close
-                if bc and candle_open:
-                    poly_result = "up" if bc >= candle_open else "down"
-                    fallback = True
-                    rocky_won = rocky_result == "win"
-                    poly_won = poly_result == direction
-                    match = "yes" if (rocky_won == poly_won) else "NO"
 
         if poly_result:
             row = {
