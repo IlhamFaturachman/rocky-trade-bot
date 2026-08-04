@@ -4,7 +4,7 @@ cd /home/farm/rocky-trade-bot
 mkdir -p logs
 
 # stop old
-pkill -9 -f 'rocky-trade-bot/.venv/bin/python3 src/main.py' 2>/dev/null || true
+pkill -9 -f 'src/main.py' 2>/dev/null || true
 pkill -9 -f 'src/dashboard.py' 2>/dev/null || true
 sleep 1
 
