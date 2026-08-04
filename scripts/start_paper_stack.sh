@@ -24,11 +24,12 @@ if p.exists():
 updates = {
   'TRADING_MODE': 'paper',
   'ROCKY_ENGINE': 'v2',
-  # LLM via local 9router gateway -> Zendy DeepSeek V4 Flash (thinking disabled)
+  # LLM via local 9router gateway -> OpenCode Free DeepSeek V4 Flash (primary)
+  # + Zendy fallback if oc ever 429s (rare, oc is free-tier unlimited)
   'LLM_API_URL': 'http://127.0.0.1:20128/v1/chat/completions',
   'LLM_API_KEY': 'sk-ec29591901e9df02-fmjzzv-9987fd46',
-  'LLM_MODEL': 'zendy/deepseek',
-  'LLM_FALLBACK_MODEL': 'oc/deepseek-v4-flash-free',
+  'LLM_MODEL': 'oc/deepseek-v4-flash-free',
+  'LLM_FALLBACK_MODEL': 'zendy/deepseek',
   'LLM_TEMPERATURE': '0.15',
   'LLM_TIMEOUT_SECONDS': '90',
   'ROCKY_STARTING_BALANCE': '100',
