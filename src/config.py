@@ -43,7 +43,7 @@ class Config:
 
     # Position sizing by confidence
     sizing_tiers: dict = field(default_factory=lambda: {
-        0.68: 0.05,  # 68-74% → 5%
+        0.60: 0.05,  # 60-74% → 5% (matches min_confidence 0.60)
         0.75: 0.08,  # 75-84% → 8%
         0.85: 0.10,  # 85%+ → 10% max
     })
