@@ -179,7 +179,7 @@ def verify_once() -> list[dict]:
                 "rocky_result": rocky_result,
                 "poly_outcome": poly_result or "",
                 "match": match or "",
-                "fallback": "binance" if fallback else "gamma",
+                "fallback": fallback,
                 "candle_open": candle_open,
                 "candle_close": candle_close,
                 "timestamp": ts,
