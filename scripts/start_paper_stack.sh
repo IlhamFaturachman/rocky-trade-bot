@@ -32,7 +32,7 @@ updates = {
   'LLM_FALLBACK_MODEL': 'zendy/deepseek',
   'LLM_TEMPERATURE': '0.15',
   'LLM_TIMEOUT_SECONDS': '90',
-  'ROCKY_STARTING_BALANCE': '100',
+  'ROCKY_STARTING_BALANCE': '5',
   'ROCKY_LOOP_INTERVAL': '60',
   'ROCKY_MIN_CONFIDENCE': '0.60',
   'ROCKY_MAX_RISK_PCT': '0.10',
@@ -82,7 +82,7 @@ nohup ./.venv/bin/python3 src/dashboard.py --host 0.0.0.0 --port 8787 > logs/das
 echo "dashboard_pid $!"
 
 # start paper
-nohup ./.venv/bin/python3 src/main.py --mode paper --engine v2 --interval 60 --balance 100 > logs/paper.stdout 2>&1 &
+nohup ./.venv/bin/python3 src/main.py --mode paper --engine v2 --interval 60 --balance 5 > logs/paper.stdout 2>&1 &
 echo "paper_pid $!"
 sleep 3
 pgrep -af 'src/main.py|src/dashboard.py|verify_trades' || true
