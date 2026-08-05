@@ -161,19 +161,16 @@ def verify_once() -> list[dict]:
         candle_open = float(t.get("candle_open_price") or 0)
         candle_close = float(t.get("candle_close_price") or 0)
         ts = float(t.get("timestamp") or 0)
-        # Binance cross-check: re-fetch the 5m candle close independently
-        # (Rocky also uses Binance, but this re-fetches fresh — catches bugs).
-        # Gamma API can't resolve Polymarket 5-min BTC series markets reliably.
-        bc = binance_candle_close(ts)
+        # Use the candle prices Rocky already recorded (from RTDS / Binance relay).
+        # Re-fetching from Binance directly fails on geo-blocked VPS (DE blocks Binance).
         poly_result = ""
         match = ""
-        fallback = True
-        if bc and candle_open:
-            poly_result = "up" if bc >= candle_open else "down"
+        fallback = "recorded"
+        if candle_close and candle_open:
+            poly_result = "up" if candle_close >= candle_open else "down"
             rocky_won = rocky_result == "win"
             poly_won = poly_result == direction
             match = "yes" if (rocky_won == poly_won) else "NO"
-
         if poly_result:
             row = {
                 "trade_id": tid,
