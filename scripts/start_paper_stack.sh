@@ -50,7 +50,7 @@ updates = {
   'ROCKY_MAX_ENTRY': '0.78',
   'ROCKY_MIN_ENTRY': '0.22',
   'ROCKY_MIN_PTB_BPS': '3',
-  'ROCKY_FEE_BPS': '150',
+  'ROCKY_FEE_BPS': '700',
   'ROCKY_SLIP_BPS': '50',
   'ROCKY_FLIP_1M_BPS': '2',
   'ROCKY_SNIPER_ENABLED': 'true',
