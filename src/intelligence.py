@@ -53,18 +53,20 @@ class BtcSnapshot:
 class IntelligenceEngine:
     """Gathers real-time BTC market intelligence from multiple sources."""
 
-    def __init__(self, config):
+    def __init__(self, config, rtds=None):
         self.config = config
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "Rocky-Trader/0.1"})
+        self._rtds = rtds  # TwapSource instance (Polymarket RTDS WebSocket)
 
     def get_snapshot(self) -> BtcSnapshot:
         """Build a complete BTC market snapshot."""
         now = time.time()
 
-        # Get price data from Binance
-        price_data = self._fetch_binance_price()
-        klines = self._fetch_binance_klines()
+        # Primary: RTDS Chainlink spot (real-time, bypasses Binance block)
+        # Fallback: Binance REST (works on mcs-liam, not VPS Jerman)
+        price_data = self._fetch_price()
+        klines = self._fetch_klines()
 
         # Calculate momentum from klines
         changes = self._calculate_changes(klines, price_data.get("price", 0))
@@ -109,12 +111,33 @@ class IntelligenceEngine:
             logger.info(f"News sentiment: {sentiment} ({len(headlines)} headlines)")
         except Exception as e:
             logger.warning(f"Failed to fetch news: {e}")
-        return snapshot
+    def _fetch_price(self) -> dict:
+        """Get current BTC price. RTDS Chainlink spot first, Binance REST fallback."""
+        # 1. RTDS Chainlink spot (real-time, bypasses Kominfo block)
+        if self._rtds is not None:
+            spot = self._rtds.get_spot()
+            if spot and spot > 0:
+                return {
+                    "price": spot,
+                    "volume": 0,
+                    "high": spot,
+                    "low": spot,
+                    "change_pct": 0,
+                }
+        # 2. Binance REST fallback (works on mcs-liam)
+        return self._fetch_binance_price()
+
+    def _fetch_klines(self) -> list:
+        """Get 1m klines. RTDS-built from Chainlink ticks first, Binance REST fallback."""
+        if self._rtds is not None:
+            klines = self._rtds.get_klines_1m()
+            if klines and len(klines) >= 3:
+                return klines
+        return self._fetch_binance_klines()
 
     def _fetch_binance_price(self) -> dict:
-        """Get current BTC price from Binance."""
+        """Get current BTC price from Binance (fallback when RTDS unavailable)."""
         try:
-            # 24h ticker
             resp = self.session.get(
                 f"{self.config.binance_api}/ticker/24hr",
                 params={"symbol": "BTCUSDT"},
@@ -131,32 +154,6 @@ class IntelligenceEngine:
             }
         except Exception as e:
             logger.error(f"Binance price fetch failed: {e}")
-            return self._fetch_coingecko_fallback()
-
-    def _fetch_coingecko_fallback(self) -> dict:
-        """Fallback price source."""
-        try:
-            resp = self.session.get(
-                f"{self.config.coingecko_api}/simple/price",
-                params={
-                    "ids": "bitcoin",
-                    "vs_currencies": "usd",
-                    "include_24hr_vol": "true",
-                    "include_24hr_change": "true",
-                },
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json().get("bitcoin", {})
-            return {
-                "price": data.get("usd", 0),
-                "volume": data.get("usd_24h_vol", 0),
-                "high": 0,
-                "low": 0,
-                "change_pct": data.get("usd_24h_change", 0),
-            }
-        except Exception as e:
-            logger.error(f"CoinGecko fallback also failed: {e}")
             return {"price": 0, "volume": 0, "high": 0, "low": 0}
 
     def _fetch_binance_klines(self, interval: str = "1m", limit: int = 60) -> list:

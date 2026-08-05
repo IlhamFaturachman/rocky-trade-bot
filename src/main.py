@@ -70,8 +70,9 @@ class Rocky:
     def __init__(self, config: Config, engine: str = "v1"):
         self.config = config
         self.engine_version = engine
+        self.twap = TwapSource()
         self.scanner = MarketScanner(config)
-        self.intel = IntelligenceEngine(config)
+        self.intel = IntelligenceEngine(config, rtds=self.twap)
         if engine == "v2":
             self.decision = DecisionEngineV2(config)
         else:
@@ -89,7 +90,6 @@ class Rocky:
         self.data_collect = os.environ.get("ROCKY_DATA_COLLECT", "true").lower() in (
             "1", "true", "yes",
         )
-        self.twap = TwapSource()
 
     def run(self):
         """Main trading loop."""
@@ -230,7 +230,7 @@ class Rocky:
                     ptb = 0.0
             if ptb > 0:
                 market.price_to_beat = ptb
-                logger.info(f"   Price to beat (Binance 5m open): ${ptb:,.2f}")
+                logger.info(f"   Price to beat (RTDS Chainlink spot): ${ptb:,.2f}")
 
         # Step 6: Analyze and decide
         logger.info(f"🧠 Analyzing ({self.engine_version})...")
@@ -827,16 +827,22 @@ class Rocky:
             self.pending_trades.remove(trade)
 
     def _fetch_candle_open_at(self, trade_timestamp: float) -> float:
-        """Fetch the Binance 5-min candle open price that covers the trade time."""
+        """Fetch the 5-min window open price. RTDS Chainlink spot first, Binance fallback."""
+        # 1. RTDS: Chainlink spot at window start (exact Polymarket source)
+        window_start = int((trade_timestamp // 300) * 300)
+        rtds_price = self.twap.get_price_at(window_start, tolerance=30)
+        if rtds_price and rtds_price > 0:
+            logger.debug(f"Candle open from RTDS: ${rtds_price:,.2f} (window_start={window_start})")
+            return rtds_price
+        # 2. Binance 5m kline fallback
         try:
-            # Get the 5-min candle that started at or before trade_timestamp
             start_ms = int(trade_timestamp * 1000)
             resp = requests.get(
                 f"{self.config.binance_api}/klines",
                 params={
                     "symbol": "BTCUSDT",
                     "interval": "5m",
-                    "startTime": start_ms - 300000,  # 5 min before
+                    "startTime": start_ms - 300000,
                     "limit": 2,
                 },
                 timeout=10,
@@ -844,11 +850,9 @@ class Rocky:
             resp.raise_for_status()
             klines = resp.json()
             if klines:
-                # Return the open of the candle that contains our trade time
                 for k in klines:
-                    if k[0] <= start_ms <= k[6]:  # open_time <= trade <= close_time
-                        return float(k[1])  # open price
-                # Fallback: last candle's open
+                    if k[0] <= start_ms <= k[6]:
+                        return float(k[1])
                 return float(klines[-1][1])
         except Exception as e:
             logger.warning(f"Failed to fetch candle open: {e}")
