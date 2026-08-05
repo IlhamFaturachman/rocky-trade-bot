@@ -111,6 +111,8 @@ class IntelligenceEngine:
             logger.info(f"News sentiment: {sentiment} ({len(headlines)} headlines)")
         except Exception as e:
             logger.warning(f"Failed to fetch news: {e}")
+        return snapshot
+
     def _fetch_price(self) -> dict:
         """Get current BTC price. RTDS Chainlink spot first, Binance REST fallback."""
         # 1. RTDS Chainlink spot (real-time, bypasses Kominfo block)
