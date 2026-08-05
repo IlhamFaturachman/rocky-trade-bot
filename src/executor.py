@@ -100,23 +100,29 @@ class ExecutionEngine:
             return None
 
         stake = round(self.balance * signal.stake_pct, 2)
-        # Polymarket minimum order = $1. If stake below floor, boost to floor
-        # (compounding mode). Safety: boosted stake must not exceed max_risk_pct.
+        # Polymarket minimum order = $1. If stake below floor, boost to floor.
+        # Compounding zone (balance < $20): $1 floor is the user-accepted risk
+        # (20% of $5 = $1). Floor is EXEMPT from max_risk_pct — it IS the sizing
+        # policy until balance grows past $20, then tier percentages take over.
         min_stake = self.config.min_stake_usd
+        compounding_zone = self.balance < 20.0
         if stake < min_stake:
             stake = round(min_stake, 2)
-            risk_check = stake / self.balance if self.balance > 0 else 1.0
-            if risk_check > self.config.max_risk_pct:
-                logger.warning(
-                    f"Stake ${stake:.2f} (boosted to min) exceeds max_risk "
-                    f"{self.config.max_risk_pct:.0%} of balance ${self.balance:.2f} "
-                    f"— skipping (balance too small for safe compounding)"
+            if compounding_zone:
+                logger.info(
+                    f"Stake boosted to ${stake:.2f} (Polymarket min order, "
+                    f"compounding zone — {stake/self.balance:.1%} of balance)"
                 )
-                return None
-            logger.info(
-                f"Stake boosted to ${stake:.2f} (Polymarket min order, "
-                f"{risk_check:.1%} of balance — compounding mode)"
-            )
+            else:
+                # Balance >= $20 but tier pct gave < $1 — shouldn't happen
+                # (5% of $20 = $1), but guard anyway
+                risk_check = stake / self.balance if self.balance > 0 else 1.0
+                if risk_check > self.config.max_risk_pct:
+                    logger.warning(
+                        f"Stake ${stake:.2f} exceeds max_risk "
+                        f"{self.config.max_risk_pct:.0%} — skipping"
+                    )
+                    return None
         if stake < 0.01:
             logger.warning(f"Stake too small: ${stake:.4f}, skipping")
             return None
