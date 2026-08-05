@@ -211,10 +211,12 @@ def test_executor_paper():
 def test_risk_management():
     """Test risk management blocks trades correctly."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        config = Config(mode=TradingMode.PAPER, paper_starting_balance=5.00,
-                        max_consecutive_losses=3)
-        config.state_path = os.path.join(tmpdir, "state.json")
-        config.journal_path = os.path.join(tmpdir, "trades.jsonl")
+        config = Config(
+            mode=TradingMode.PAPER, paper_starting_balance=50.00,
+            max_consecutive_losses=3,
+            state_path=os.path.join(tmpdir, "state.json"),
+            journal_path=os.path.join(tmpdir, "trades.jsonl"),
+        )
 
         executor = ExecutionEngine(config)
         executor.consecutive_losses = 3
