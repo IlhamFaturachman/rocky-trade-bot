@@ -78,7 +78,7 @@ source <(grep -v '^#' .env | sed 's/\r$//')
 set +a
 
 # start dashboard
-nohup ./.venv/bin/python3 src/dashboard.py --host 0.0.0.0 --port 8787 > logs/dashboard.log 2>&1 &
+nohup ./.venv/bin/python3 src/dashboard.py --host :: --port 8787 > logs/dashboard.log 2>&1 &
 echo "dashboard_pid $!"
 
 # start paper
