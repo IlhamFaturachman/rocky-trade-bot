@@ -39,13 +39,20 @@ edge_up = your_p_up - yes_price
 edge_down = your_p_down - no_price
 The executor gates on edge separately. YOU must always output a direction with the computed edge — even if edge is small or negative. NEVER skip just because edge < 0.06. A small edge with a directional lean is still a valid signal; report it honestly.
 
+## CRITICAL: Directional lean vs mean reversion
+The prompt gives you a "tape_lean" summary (how far spot is from the 5-min window open, in bps and direction). This is the DOMINANT signal:
+- If spot is FAR ABOVE open (+100bps+): UP is very likely to win — the close must only stay >= open. A -100bps reversal in the remaining time is UNLIKELY in low-mid volatility. Do NOT call DOWN expecting mean reversion.
+- If spot is FAR BELOW open (-100bps+): DOWN is very likely to win — close must drop below open, which is already the case. A +100bps bounce in the remaining time is UNLIKELY.
+- If spot is NEAR open (within ±30bps): this is a coin flip — lean on momentum/tape direction.
+The further spot is from open, the HIGHER the probability the current side wins. Mean reversion in 5-min BTC is WEAK — momentum/persistence dominates.
+
 ## When to SKIP (truly rare — almost never)
-Only SKIP when price is sitting EXACTLY on the open (delta = 0 bps) AND the last 3 candles are flat AND momentum is "neutral". If price is even 1 bps above or below the open, output UP or DOWN respectively with confidence 55-60. When in doubt between up and down, pick the side price is currently on relative to the open.
+Only SKIP when tape_lean is "on_open" (within ±5bps) AND the last 3 candles are flat AND momentum is "neutral". If spot is even 10bps above or below open, output UP or DOWN respectively with confidence 55-60.
 
 ## What actually matters for 5 minutes (priority order)
-1. Distance of CURRENT price vs PRICE TO BEAT (signed $ and bps) — the dominant signal
+1. tape_lean: how far is current price from the 5-min window open? (dominant signal)
 2. Last 1-3 one-minute candles: direction, range, volume expansion/contraction
-3. Micro-momentum vs mean-reversion (overextended wick into thin volume = fade risk)
+3. Momentum persistence vs reversal (overextended wick into thin volume = fade risk)
 4. Multi-TF alignment (1m/5m/15m) — agreement helps, disagreement -> lower confidence
 5. Polymarket mispricing / stale book vs spot
 6. News ONLY if clearly breaking and not already in the move
@@ -53,6 +60,7 @@ Only SKIP when price is sitting EXACTLY on the open (delta = 0 bps) AND the last
 Do NOT:
 - Default to skip when uncertain — pick the slight-lean direction with low confidence instead
 - Confuse 24h narrative with 5-minute edge
+- Call DOWN when spot is far above open expecting mean reversion (this is the #1 error)
 - Output confidence > 80 unless multiple independent factors align AND edge >= 0.10
 - Invent data not present in the prompt
 
@@ -120,27 +128,38 @@ def build_analysis_prompt(
     if news_headlines:
         news_str = "\n".join(f"- {h}" for h in news_headlines[:8])
 
-    ptb_str = "Not available"
+    t_left = getattr(market, "seconds_to_end", 0.0) or 0.0
+
+    # tape_lean: directional summary of spot vs window open (no raw $ open price)
+    # Prevents LLM mean-reversion fallacy while giving directional context
     ptb = getattr(market, "price_to_beat", 0.0) or 0.0
     if ptb <= 0 and snapshot.raw_klines:
-        # Approximate current 5m open from last closed 5m boundary using 1m bars
-        # (best-effort when Polymarket metadata missing)
         try:
-            # use first of last 5 one-minute opens as rough proxy
             ptb = float(snapshot.raw_klines[-5]["open"])
         except Exception:
             ptb = 0.0
+    tape_lean = "Not available"
     if ptb > 0 and snapshot.price_usd > 0:
         diff = snapshot.price_usd - ptb
-        pct = (diff / ptb) * 100
-        bps = pct * 100
-        ptb_str = (
-            f"${ptb:,.2f} | spot ${snapshot.price_usd:,.2f} | "
-            f"delta ${diff:+,.2f} ({pct:+.4f}% / {bps:+.1f} bps) | "
-            f"side_of_open={'ABOVE' if diff >= 0 else 'BELOW'}"
+        bps = (diff / ptb) * 10_000.0
+        if abs(bps) < 5:
+            lean_dir = "on_open (coin flip — lean on momentum)"
+        elif bps > 0:
+            lean_dir = "ABOVE open (UP favored)"
+        else:
+            lean_dir = "BELOW open (DOWN favored)"
+        mag = abs(bps)
+        if mag >= 100:
+            strength = "STRONG"
+        elif mag >= 30:
+            strength = "MODERATE"
+        else:
+            strength = "SLIGHT"
+        tape_lean = (
+            f"{lean_dir} | {mag:.0f} bps displacement | {strength} | "
+            f"{t_left:.0f}s remaining"
         )
 
-    t_left = getattr(market, "seconds_to_end", 0.0) or 0.0
     # Fair-ish mid if both sides present
     mkt_sum = (market.yes_price or 0) + (market.no_price or 0)
 
@@ -165,7 +184,7 @@ def build_analysis_prompt(
 - **Question:** {market.question}
 - **Series:** {getattr(market, 'series_slug', 'unknown')}
 - **Seconds remaining:** {t_left:.0f}s
-- **Price to beat / open context:** {ptb_str}
+- **Tape lean:** {tape_lean}
 - **YES/Up price:** {market.yes_price:.4f} ({market.yes_price:.1%} implied)
 - **NO/Down price:** {market.no_price:.4f} ({market.no_price:.1%} implied)
 - **yes+no sum:** {mkt_sum:.4f} (≈1.0 healthy; far from 1.0 = stale/illiquid)

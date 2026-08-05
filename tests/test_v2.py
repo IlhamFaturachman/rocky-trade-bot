@@ -150,8 +150,8 @@ def test_prompt_building():
     assert "Bitcoin surges" in prompt, "News missing"
     assert "| 1m |" in prompt, "Klines missing"
     assert "btc-up-or-down-5m" in prompt, "Series slug missing"
-    assert "93,950.00" in prompt, "Price to beat missing"
-    assert "Price to beat" in prompt or "price to beat" in prompt, "Price to beat label missing"
+    assert "ABOVE open" in prompt or "BELOW open" in prompt or "on_open" in prompt, "Tape lean missing"
+    assert "Tape lean" in prompt, "Tape lean label missing"
 
     print(f"   Prompt length: {len(prompt)} chars")
     print("✅ Prompt building test passed")
