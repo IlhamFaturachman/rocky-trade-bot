@@ -52,7 +52,7 @@ class EdgeConfig:
     min_edge: float = 0.05           # p_model - ask
     max_entry: float = 0.70          # never chase expensive favorites
     min_entry: float = 0.28
-    fee_bps: float = 150.0           # paper fee buffer (~1.5%)
+    fee_bps: float = 700.0           # Polymarket crypto taker fee = 7%
     slip_bps: float = 50.0           # extra slip buffer
 
     # Flip guard
@@ -80,7 +80,7 @@ class EdgeConfig:
             min_edge=_env_float("ROCKY_MIN_EDGE", 0.05),
             max_entry=_env_float("ROCKY_MAX_ENTRY", 0.70),
             min_entry=_env_float("ROCKY_MIN_ENTRY", 0.28),
-            fee_bps=_env_float("ROCKY_FEE_BPS", 150),
+            fee_bps=_env_float("ROCKY_FEE_BPS", 700),
             slip_bps=_env_float("ROCKY_SLIP_BPS", 50),
             flip_1m_bps=_env_float("ROCKY_FLIP_1M_BPS", 2),
             sniper_enabled=os.environ.get("ROCKY_SNIPER_ENABLED", "true").lower()
@@ -142,7 +142,9 @@ def _recent_range_bps(snapshot) -> float:
     klines = getattr(snapshot, "raw_klines", None) or []
     if len(klines) < 5:
         return 999.0
-    recent = klines[-5:]
+    # Exclude the last (incomplete) candle — its range is still forming
+    # and can falsely trigger chop when only 1-2 ticks have arrived
+    recent = klines[-6:-1] if len(klines) >= 6 else klines[:-1]
     ranges = []
     for k in recent:
         o = float(k.get("open") or 0)
@@ -183,22 +185,38 @@ def _ask_for_direction(market, direction: str, orderbook: Optional[dict] = None)
 
 def _p_model_from_signal(direction: str, confidence: float, snapshot, market) -> float:
     """
-    Map signal confidence + tape to a crude p(up).
-    confidence is treated as conviction on `direction`.
+    Map signal confidence + tape to p(up), blended with tape_fair_p_up guardrail.
+    LLM confidence is uncalibrated — tape_fair_p_up (grounded in PTB displacement)
+    acts as a sanity check. If they diverge >15%, blend toward tape.
     """
     conf = max(0.5, min(0.95, float(confidence or 0.5)))
     if direction == "up":
-        return conf
-    if direction == "down":
-        return 1.0 - conf
-    # skip / unknown — lean on PTB side
-    ptb = float(getattr(market, "price_to_beat", 0) or 0)
-    price = float(getattr(snapshot, "price_usd", 0) or 0)
-    if ptb > 0 and price > 0:
-        if price >= ptb:
-            return 0.55
-        return 0.45
-    return 0.5
+        llm_p = conf
+    elif direction == "down":
+        llm_p = 1.0 - conf
+    else:
+        ptb = float(getattr(market, "price_to_beat", 0) or 0)
+        price = float(getattr(snapshot, "price_usd", 0) or 0)
+        if ptb > 0 and price > 0:
+            return 0.55 if price >= ptb else 0.45
+        return 0.5
+    # Tape-based p_model guardrail (from features.tape_fair_p_up)
+    tape_p = _tape_fair_p_up_safe(snapshot, market)
+    if tape_p is not None:
+        divergence = abs(llm_p - tape_p)
+        if divergence > 0.15:
+            # Blend 60% LLM + 40% tape when divergent (tape grounded in settlement criterion)
+            llm_p = 0.6 * llm_p + 0.4 * tape_p
+    return max(0.01, min(0.99, llm_p))
+
+
+def _tape_fair_p_up_safe(snapshot, market) -> Optional[float]:
+    """Compute tape_fair_p_up safely (may not have features import)."""
+    try:
+        from src.features import tape_fair_p_up
+        return tape_fair_p_up(snapshot, market)
+    except Exception:
+        return None
 
 
 class EdgeGate:

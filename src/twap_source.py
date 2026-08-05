@@ -184,6 +184,22 @@ class TwapSource:
                 return self._spot_cache[-1][1]
         return None
 
+    def get_spot_age_seconds(self) -> float:
+        """Age of the latest Chainlink spot tick (staleness detection)."""
+        with self._lock:
+            if self._spot_cache:
+                return max(0.0, time.time() - self._spot_cache[-1][0])
+        return 999.0  # no data = very stale
+
+    def get_chainlink_binance_div_bps(self) -> float:
+        """Divergence between Chainlink and Binance-relayed spot (bps)."""
+        with self._lock:
+            chainlink = self._spot_cache[-1][1] if self._spot_cache else None
+            binance = self._binance_cache[-1][1] if self._binance_cache else None
+        if chainlink and binance and chainlink > 0:
+            return ((chainlink - binance) / chainlink) * 10_000.0
+        return 0.0
+
     def get_binance_spot(self) -> Optional[float]:
         """Latest Binance BTC/USDT spot (relayed via Polymarket RTDS)."""
         with self._lock:

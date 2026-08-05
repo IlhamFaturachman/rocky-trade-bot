@@ -45,7 +45,7 @@ def _f(x: Any, default: float = 0.0) -> float:
 class FillConfig:
     """Execution realism knobs (shared paper + live)."""
 
-    fee_bps: float = 150.0
+    fee_bps: float = 700.0  # Polymarket crypto taker fee = 7% (rate × price × (1-price))
     slip_bps: float = 50.0  # max adverse vs best ask (reject if VWAP worse)
     apply_fee_to_entry: bool = True  # bump VWAP by fee_bps for journal entry
     min_fill_pct: float = 1.0  # require full fill (FOK-like); <1 allows partial
@@ -61,7 +61,7 @@ class FillConfig:
     @classmethod
     def from_env(cls) -> "FillConfig":
         return cls(
-            fee_bps=_env_float("ROCKY_FEE_BPS", 150),
+            fee_bps=_env_float("ROCKY_FEE_BPS", 700),
             slip_bps=_env_float("ROCKY_SLIP_BPS", 50),
             apply_fee_to_entry=_env_bool("ROCKY_APPLY_FEE_TO_ENTRY", True),
             min_fill_pct=min(1.0, max(0.01, _env_float("ROCKY_MIN_FILL_PCT", 1.0))),

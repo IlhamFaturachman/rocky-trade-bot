@@ -22,7 +22,7 @@ class TradeSignal:
     expected_price: float   # Expected entry price
     stake_pct: float        # Position size as % of balance
     raw_llm_response: str = ""  # V2 only: full LLM output for journal
-    candle_open_price: float = 0.0  # Binance candle open price for resolution
+    candle_open_price: float = 0.0  # Chainlink spot at window open (price to beat)
     # Edge Pack metadata
     edge_mode: str = ""
     edge: float = 0.0

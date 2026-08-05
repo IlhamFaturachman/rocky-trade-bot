@@ -30,6 +30,8 @@ class BtcSnapshot:
     news_sentiment: str = "neutral" # "bullish", "bearish", "neutral"
     news_headlines: list = field(default_factory=list)
     raw_klines: list = field(default_factory=list)  # Recent candles
+    spot_age_seconds: float = 0.0  # Age of Chainlink spot tick (staleness detection)
+    chainlink_binance_div_bps: float = 0.0  # Divergence between Chainlink and Binance-relayed spot
 
     @property
     def trend_direction(self) -> str:
@@ -90,6 +92,8 @@ class IntelligenceEngine:
             momentum=momentum,
             volatility=volatility,
             raw_klines=klines[-20:] if klines else [],
+            spot_age_seconds=price_data.get("spot_age", 0),
+            chainlink_binance_div_bps=price_data.get("div_bps", 0),
         )
 
         logger.info(
@@ -125,6 +129,8 @@ class IntelligenceEngine:
                     "high": spot,
                     "low": spot,
                     "change_pct": 0,
+                    "spot_age": self._rtds.get_spot_age_seconds(),
+                    "div_bps": self._rtds.get_chainlink_binance_div_bps(),
                 }
         # 2. Binance REST fallback (works on mcs-liam)
         return self._fetch_binance_price()

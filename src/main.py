@@ -729,8 +729,8 @@ class Rocky:
     def _resolve_pending_trades(self):
         """
         Resolve pending paper trades using Polymarket resolution logic:
-        UP wins if Binance BTC/USDT 5-min candle CLOSE >= OPEN.
-        DOWN wins if CLOSE < OPEN.
+        UP wins if Chainlink 30s TWAP at window end >= Chainlink spot at open.
+        DOWN wins if TWAP < spot at open.
         """
         if not self.pending_trades:
             return
@@ -830,7 +830,7 @@ class Rocky:
         """Fetch the 5-min window open price. RTDS Chainlink spot first, Binance fallback."""
         # 1. RTDS: Chainlink spot at window start (exact Polymarket source)
         window_start = int((trade_timestamp // 300) * 300)
-        rtds_price = self.twap.get_price_at(window_start, tolerance=300)
+        rtds_price = self.twap.get_price_at(window_start, tolerance=10)
         if rtds_price and rtds_price > 0:
             logger.info(f"Candle open from RTDS: ${rtds_price:,.2f}")
             return rtds_price

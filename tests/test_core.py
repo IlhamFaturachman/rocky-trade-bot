@@ -180,11 +180,12 @@ def test_executor_paper():
             print(f"   Executed: ${record.stake_usd:.4f} stake, balance now ${executor.balance:.4f}")
 
             # Resolve as win. Entry is dynamic-fee-bumped:
-            # Polymarket dynamic: fee = rate * price * (1-price)
-            # At 0.50: fee_frac = 0.015 * 0.50 * 0.50 = 0.00375
-            # entry = 0.50 * (1 + 0.00375) = 0.501875
+            # Polymarket crypto dynamic: fee = rate * price * (1-price)
+            # rate = 700bps/10000 = 0.07
+            # At 0.50: fee_frac = 0.07 * 0.50 * 0.50 = 0.0175
+            # entry = 0.50 * (1 + 0.0175) = 0.50875
             # shares = $1 / entry_dyn, payout = shares × $1
-            dyn_fee = 0.015 * 0.50 * 0.50
+            dyn_fee = 0.07 * 0.50 * 0.50
             entry_dyn = 0.50 * (1 + dyn_fee)
             executor.resolve_trade(record, won=True)
             assert record.result == "win"
