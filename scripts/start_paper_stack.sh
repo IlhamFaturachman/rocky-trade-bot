@@ -77,12 +77,12 @@ set -a
 source <(grep -v '^#' .env | sed 's/\r$//')
 set +a
 
-# start dashboard
-nohup ./.venv/bin/python3 src/dashboard.py --host :: --port 8787 > logs/dashboard.log 2>&1 &
+# start dashboard (port 80 for Cloudflare Flexible mode, IPv6 for VPS Jerman)
+nohup ./.venv/bin/python3 src/dashboard.py --host :: --port 80 > logs/dashboard.log 2>&1 &
 echo "dashboard_pid $!"
 
-# start paper
-nohup ./.venv/bin/python3 src/main.py --mode paper --engine v2 --interval 60 --balance 5 > logs/paper.stdout 2>&1 &
+# start paper — wrapped in restart loop (survives crashes during 7-day collection)
+nohup bash -c 'while true; do ./.venv/bin/python3 src/main.py --mode paper --engine v2 --interval 60 --balance 5; echo "[watchdog] main.py exited, restarting in 15s..."; sleep 15; done' > logs/paper.stdout 2>&1 &
 echo "paper_pid $!"
 sleep 3
 pgrep -af 'src/main.py|src/dashboard.py|verify_trades' || true
