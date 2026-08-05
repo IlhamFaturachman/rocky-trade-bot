@@ -99,7 +99,24 @@ class ExecutionEngine:
         if not self._pre_trade_checks(signal):
             return None
 
-        stake = round(self.balance * signal.stake_pct, 4)
+        stake = round(self.balance * signal.stake_pct, 2)
+        # Polymarket minimum order = $1. If stake below floor, boost to floor
+        # (compounding mode). Safety: boosted stake must not exceed max_risk_pct.
+        min_stake = self.config.min_stake_usd
+        if stake < min_stake:
+            stake = round(min_stake, 2)
+            risk_check = stake / self.balance if self.balance > 0 else 1.0
+            if risk_check > self.config.max_risk_pct:
+                logger.warning(
+                    f"Stake ${stake:.2f} (boosted to min) exceeds max_risk "
+                    f"{self.config.max_risk_pct:.0%} of balance ${self.balance:.2f} "
+                    f"— skipping (balance too small for safe compounding)"
+                )
+                return None
+            logger.info(
+                f"Stake boosted to ${stake:.2f} (Polymarket min order, "
+                f"{risk_check:.1%} of balance — compounding mode)"
+            )
         if stake < 0.01:
             logger.warning(f"Stake too small: ${stake:.4f}, skipping")
             return None

@@ -41,6 +41,14 @@ class Config:
     max_consecutive_losses: int = 3   # Pause after 3 consecutive losses
     daily_loss_limit_pct: float = 0.25  # Max 25% daily drawdown
 
+    # Polymarket CLOB minimum order size = $1 (enforced by smart contract)
+    # Bot boosts stake to meet this floor when balance is small (compounding mode)
+    min_stake_usd: float = float(os.getenv("ROCKY_MIN_STAKE_USD", "1.0"))
+    # When stake_pct × balance < min_stake_usd, boost to min_stake_usd IF
+    # boosted stake <= max_risk_pct × balance (safety cap). Otherwise skip.
+    # This enables compounding from $5: $5 × 5% = $0.25 → boost to $1 (20% of balance)
+    # At $20+: 5% = $1+, normal sizing kicks in, no boost needed.
+
     # Position sizing by confidence
     sizing_tiers: dict = field(default_factory=lambda: {
         0.60: 0.05,  # 60-74% → 5% (matches min_confidence 0.60)
