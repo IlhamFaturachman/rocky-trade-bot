@@ -218,7 +218,7 @@ class Rocky:
         logger.info(f"🎯 Target market: {market.question}")
         logger.info(f"   YES: {market.yes_price:.4f} | NO: {market.no_price:.4f}")
 
-        # Fill price-to-beat from Binance 5m candle open when Gamma omits it
+        # Fill price-to-beat from RTDS Chainlink spot (Binance fallback if RTDS miss)
         if getattr(market, "price_to_beat", 0) <= 0:
             ptb = self._fetch_candle_open_at(time.time())
             if ptb <= 0 and snapshot.raw_klines:
@@ -830,10 +830,17 @@ class Rocky:
         """Fetch the 5-min window open price. RTDS Chainlink spot first, Binance fallback."""
         # 1. RTDS: Chainlink spot at window start (exact Polymarket source)
         window_start = int((trade_timestamp // 300) * 300)
-        rtds_price = self.twap.get_price_at(window_start, tolerance=30)
+        rtds_price = self.twap.get_price_at(window_start, tolerance=300)
         if rtds_price and rtds_price > 0:
-            logger.debug(f"Candle open from RTDS: ${rtds_price:,.2f} (window_start={window_start})")
+            logger.info(f"Candle open from RTDS: ${rtds_price:,.2f}")
             return rtds_price
+        # 1b. RTDS klines fallback: open of 1m candle at window start
+        klines = self.twap.get_klines_1m()
+        if klines:
+            for k in klines:
+                if k["open_time"] == window_start:
+                    logger.info(f"Candle open from RTDS klines: ${k['open']:,.2f}")
+                    return k["open"]
         # 2. Binance 5m kline fallback
         try:
             start_ms = int(trade_timestamp * 1000)
