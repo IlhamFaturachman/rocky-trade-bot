@@ -142,70 +142,73 @@ def test_decision_engine():
 
 def test_executor_paper():
     """Test paper trade execution and resolution."""
-    # Isolate from deployment .env (e.g. ROCKY_STARTING_BALANCE on the VPS),
+    # Isolate from deployment .env (ROCKY_STARTING_BALANCE on the VPS),
     # which Config.__post_init__ would otherwise apply over explicit args.
+    # Use try/finally so the env var is always cleaned up even on assertion failure.
     os.environ["ROCKY_STARTING_BALANCE"] = "5.00"
-    with tempfile.TemporaryDirectory() as tmpdir:
-        config = Config(mode=TradingMode.PAPER, paper_starting_balance=5.00)
-        config.state_path = os.path.join(tmpdir, "state.json")
-        config.journal_path = os.path.join(tmpdir, "trades.jsonl")
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = Config(mode=TradingMode.PAPER, paper_starting_balance=5.00,
+                            state_path=os.path.join(tmpdir, "state.json"),
+                            journal_path=os.path.join(tmpdir, "trades.jsonl"))
 
-        executor = ExecutionEngine(config)
-        assert executor.balance == 5.00
+            executor = ExecutionEngine(config)
+            assert executor.balance == 5.00
 
-        market = BtcMarket(
-            condition_id="test-123", question="Will BTC go up?",
-            market_slug="btc-5min", end_date="2026-04-24T19:00:00Z",
-            tokens=[{"token_id": "yes-token", "outcome": "Yes"},
-                    {"token_id": "no-token", "outcome": "No"}],
-            active=True, yes_price=0.50, no_price=0.50,
-            volume=1000, liquidity=500,
-        )
-        snapshot = BtcSnapshot(timestamp=time.time(), price_usd=94000.0, momentum="bullish")
+            market = BtcMarket(
+                condition_id="test-123", question="Will BTC go up?",
+                market_slug="btc-5min", end_date="2026-04-24T19:00:00Z",
+                tokens=[{"token_id": "yes-token", "outcome": "Yes"},
+                        {"token_id": "no-token", "outcome": "No"}],
+                active=True, yes_price=0.50, no_price=0.50,
+                volume=1000, liquidity=500,
+            )
+            snapshot = BtcSnapshot(timestamp=time.time(), price_usd=94000.0, momentum="bullish")
 
-        signal = TradeSignal(
-            direction="up", confidence=0.75, reasoning=["Test trade"],
-            market=market, snapshot=snapshot, token_id="yes-token",
-            expected_price=0.50, stake_pct=0.15,
-        )
+            signal = TradeSignal(
+                direction="up", confidence=0.75, reasoning=["Test trade"],
+                market=market, snapshot=snapshot, token_id="yes-token",
+                expected_price=0.50, stake_pct=0.15,
+            )
 
-        record = executor.execute(signal)
-        assert record is not None
-        assert record.stake_usd == 1.0  # boosted to $1 Polymarket minimum (compounding zone)
-        assert record.mode == "paper"
-        # Balance should be deducted at trade time
-        assert executor.balance == 4.00, f"Balance after trade: ${executor.balance} (expected 4.00)"
-        print(f"   Executed: ${record.stake_usd:.4f} stake, balance now ${executor.balance:.4f}")
+            record = executor.execute(signal)
+            assert record is not None
+            assert record.stake_usd == 1.0  # boosted to $1 Polymarket minimum (compounding zone)
+            assert record.mode == "paper"
+            # Balance should be deducted at trade time
+            assert executor.balance == 4.00, f"Balance after trade: ${executor.balance} (expected 4.00)"
+            print(f"   Executed: ${record.stake_usd:.4f} stake, balance now ${executor.balance:.4f}")
 
-        # Resolve as win. Entry is dynamic-fee-bumped:
-        # Polymarket dynamic: fee = rate * price * (1-price)
-        # At 0.50: fee_frac = 0.015 * 0.50 * 0.50 = 0.00375
-        # entry = 0.50 * (1 + 0.00375) = 0.501875
-        # shares = $1 / entry_dyn, payout = shares × $1
-        dyn_fee = 0.015 * 0.50 * 0.50
-        entry_dyn = 0.50 * (1 + dyn_fee)
-        executor.resolve_trade(record, won=True)
-        assert record.result == "win"
-        assert record.payout == pytest.approx(1.0 / entry_dyn, rel=1e-9), \
-            f"Payout: {record.payout} (expected {1.0 / entry_dyn})"
-        assert record.pnl == pytest.approx(1.0 / entry_dyn - 1.0, rel=1e-9), \
-            f"PnL: {record.pnl} (expected {1.0 / entry_dyn - 1.0})"
-        assert executor.balance == pytest.approx(round(4.00 + 1.0 / entry_dyn, 4), rel=1e-9), \
-            f"Balance after win: {executor.balance} (expected {round(4.00 + 1.0 / entry_dyn, 4)})"
-        print(f"   WIN: payout ${record.payout:.4f}, P&L ${record.pnl:+.4f} → balance ${executor.balance:.4f}")
+            # Resolve as win. Entry is dynamic-fee-bumped:
+            # Polymarket dynamic: fee = rate * price * (1-price)
+            # At 0.50: fee_frac = 0.015 * 0.50 * 0.50 = 0.00375
+            # entry = 0.50 * (1 + 0.00375) = 0.501875
+            # shares = $1 / entry_dyn, payout = shares × $1
+            dyn_fee = 0.015 * 0.50 * 0.50
+            entry_dyn = 0.50 * (1 + dyn_fee)
+            executor.resolve_trade(record, won=True)
+            assert record.result == "win"
+            assert record.payout == pytest.approx(1.0 / entry_dyn, rel=1e-9), \
+                f"Payout: {record.payout} (expected {1.0 / entry_dyn})"
+            assert record.pnl == pytest.approx(1.0 / entry_dyn - 1.0, rel=1e-9), \
+                f"PnL: {record.pnl} (expected {1.0 / entry_dyn - 1.0})"
+            assert executor.balance == pytest.approx(round(4.00 + 1.0 / entry_dyn, 4), rel=1e-9), \
+                f"Balance after win: {executor.balance} (expected {round(4.00 + 1.0 / entry_dyn, 4)})"
+            print(f"   WIN: payout ${record.payout:.4f}, P&L ${record.pnl:+.4f} → balance ${executor.balance:.4f}")
 
-        # Verify journal
-        assert os.path.exists(config.journal_path)
-        with open(config.journal_path) as f:
-            lines = f.readlines()
-        assert len(lines) == 2  # opened + resolved
-        print(f"   Journal: {len(lines)} entries written")
+            # Verify journal
+            assert os.path.exists(config.journal_path)
+            with open(config.journal_path) as f:
+                lines = f.readlines()
+            assert len(lines) == 2  # opened + resolved
+            print(f"   Journal: {len(lines)} entries written")
 
-        stats = executor.get_stats()
-        assert stats["wins"] == 1
-        assert stats["win_rate"] == 1.0
+            stats = executor.get_stats()
+            assert stats["wins"] == 1
+            assert stats["win_rate"] == 1.0
 
-        print("✅ Executor tests passed")
+            print("✅ Executor tests passed")
+    finally:
         os.environ.pop("ROCKY_STARTING_BALANCE", None)
 
 
