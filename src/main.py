@@ -879,7 +879,7 @@ class Rocky:
         window_end = window_start + 300
 
         # ── Primary: Polymarket RTDS Chainlink TWAP ──
-        twap = self.twap.get_twap_at(window_end, tolerance=10)
+        twap = self.twap.get_twap_at(window_end, tolerance=30)
         if twap and twap > 0:
             logger.debug(f"TWAP from RTDS: ${twap:,.2f} (window_end={window_end})")
             return twap
