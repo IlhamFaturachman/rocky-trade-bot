@@ -87,6 +87,14 @@ class ExecutionEngine:
         self._clob = None
         self._load_state()
         self._recover_pending_posts()
+        # Wallet sync: if POLY_PRIVATE_KEY set + ROCKY_WALLET_SYNC=true,
+        # read real USDC balance from Polymarket and use as authoritative balance.
+        # This makes paper = live behavior (real wallet balance drives sizing).
+        self._wallet_sync_enabled = os.getenv("ROCKY_WALLET_SYNC", "false").lower() in (
+            "1", "true", "yes",
+        )
+        if self._wallet_sync_enabled:
+            self._sync_balance_to_wallet()
 
     # ── public API ──────────────────────────────────────────────────────────
 
@@ -560,7 +568,6 @@ class ExecutionEngine:
             if client is None:
                 return True  # paper/dry-run: skip check (no client)
             bal = client.get_balance_allowance(asset_type="COLLATERAL")
-            # BalanceAllowance model — extract balance
             wallet_balance = 0.0
             for attr in ("balance", "usdc_balance", "collateral_balance"):
                 val = getattr(bal, attr, None)
@@ -581,6 +588,41 @@ class ExecutionEngine:
         except Exception as e:
             logger.warning(f"Wallet balance check failed (allowing): {e}")
             return True  # fail-open: don't block trades on check error
+
+    def _sync_balance_to_wallet(self) -> None:
+        """Read real USDC balance from Polymarket wallet → set as authoritative balance.
+
+        Makes paper = live: sizing uses real wallet balance, not synthetic number.
+        Called at startup (if ROCKY_WALLET_SYNC=true) and periodically during runs.
+        """
+        try:
+            client = self._get_clob_client()
+            if client is None:
+                logger.info("Wallet sync: no client (paper mode) — keeping synthetic balance")
+                return
+            bal = client.get_balance_allowance(asset_type="COLLATERAL")
+            wallet_balance = 0.0
+            for attr in ("balance", "usdc_balance", "collateral_balance"):
+                val = getattr(bal, attr, None)
+                if val is not None:
+                    try:
+                        wallet_balance = float(val)
+                        break
+                    except (TypeError, ValueError):
+                        pass
+            if wallet_balance > 0:
+                drift = abs(wallet_balance - self.balance)
+                if drift > 0.01:
+                    logger.info(
+                        f"Wallet sync: ${wallet_balance:.2f} (real) vs ${self.balance:.2f} (tracked) "
+                        f"— drift ${drift:.2f}, syncing to real wallet"
+                    )
+                self.balance = round(wallet_balance, 4)
+                self.daily_starting_balance = self.balance
+                self._save_state()
+                logger.info(f"Wallet sync complete: balance = ${self.balance:.4f}")
+        except Exception as e:
+            logger.warning(f"Wallet sync failed (keeping tracked balance): {e}")
 
     def _get_clob_client(self):
         if self._clob is not None:
