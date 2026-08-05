@@ -206,6 +206,7 @@ def test_executor_paper():
         assert stats["win_rate"] == 1.0
 
         print("✅ Executor tests passed")
+        os.environ.pop("ROCKY_STARTING_BALANCE", None)
 
 
 def test_risk_management():
