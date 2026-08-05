@@ -159,10 +159,12 @@ class IntelligenceEngine:
                 "high": float(data.get("highPrice", 0)),
                 "low": float(data.get("lowPrice", 0)),
                 "change_pct": float(data.get("priceChangePercent", 0)),
+                "spot_age": 999.0,  # Binance fallback — no RTDS staleness tracking
+                "div_bps": 0.0,
             }
         except Exception as e:
             logger.error(f"Binance price fetch failed: {e}")
-            return {"price": 0, "volume": 0, "high": 0, "low": 0}
+            return {"price": 0, "volume": 0, "high": 0, "low": 0, "spot_age": 999.0, "div_bps": 0.0}
 
     def _fetch_binance_klines(self, interval: str = "1m", limit: int = 60) -> list:
         """Fetch recent 1-minute candles from Binance."""

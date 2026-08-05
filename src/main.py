@@ -750,7 +750,7 @@ class Rocky:
                 candle_open = trade.candle_open_price
 
                 # If we don't have a candle open from the market metadata,
-                # fetch the 5-min candle from Binance that covers the trade time
+                # fetch the Chainlink spot at window open via RTDS
                 if candle_open <= 0:
                     candle_open = self._fetch_candle_open_at(trade.timestamp)
 
