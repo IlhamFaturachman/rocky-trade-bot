@@ -290,7 +290,14 @@ class ExecutionEngine:
             )
             return False
 
-        if self.consecutive_losses >= self.config.max_consecutive_losses:
+        # Compounding zone (balance < $20): $1 stake = 5-20% of balance.
+        # Default limits (3 consecutive, 25% daily) stall bot after 2 losses
+        # from $5. Loosen here so bot can trade through normal losing streaks.
+        compounding_zone = self.balance < 20.0
+        effective_max_losses = 10 if compounding_zone else self.config.max_consecutive_losses
+        effective_daily_limit = 0.60 if compounding_zone else self.config.daily_loss_limit_pct
+
+        if self.consecutive_losses >= effective_max_losses:
             logger.warning(
                 f"Hit {self.consecutive_losses} consecutive losses, "
                 f"pausing trading. Need manual reset or a win."
@@ -302,7 +309,7 @@ class ExecutionEngine:
             if self.daily_starting_balance > 0
             else 0.0
         )
-        if daily_loss >= self.config.daily_loss_limit_pct:
+        if daily_loss >= effective_daily_limit:
             logger.warning(
                 f"Daily loss limit hit: {daily_loss:.0%} drawdown. No more trades today."
             )
