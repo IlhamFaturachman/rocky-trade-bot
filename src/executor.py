@@ -243,12 +243,20 @@ class ExecutionEngine:
         record.resolved_at = time.time()
 
         if getattr(record, "result", None) == "void":
-            # Pre-marked void (no price data) — journal only, no balance/PnL impact.
+            # Refund stake for real trades — it was deducted at execute() time.
+            # Shadow trades never touched balance, so no refund needed.
             record.payout = 0.0
             record.pnl = 0.0
-            logger.info(
-                f"Trade #{record.trade_id} VOID — no resolution data, balance unchanged"
-            )
+            if not getattr(record, "is_shadow", False):
+                self.balance = round(self.balance + record.stake_usd, 4)
+                logger.info(
+                    f"Trade #{record.trade_id} VOID — stake ${record.stake_usd:.4f} refunded, "
+                    f"balance ${self.balance:.4f}"
+                )
+            else:
+                logger.info(
+                    f"Trade #{record.trade_id} VOID (shadow) — no resolution data, balance untouched"
+                )
             self._save_state()
             self._append_journal(record, resolved=True)
             return record
