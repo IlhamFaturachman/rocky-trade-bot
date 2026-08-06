@@ -790,24 +790,20 @@ class Rocky:
                 candle_close = self._fetch_candle_close_at(trade.timestamp)
 
                 if candle_close <= 0:
-                    # Watchdog: trade old + Binance fetch failing → force-resolve
-                    # using entry price as open + current snapshot as close.
+                    # Unrecoverable close price after 600s — VOID instead of guessing.
+                    # Using current spot (10+ min post-window) or entry price (~5 min pre-close)
+                    # fabricates fake win/loss. VOID keeps the 7-day dataset clean.
                     age = time.time() - trade.timestamp
                     if age > 600:
-                        # Force-resolve: RTDS spot ONLY if fresh, else entry price.
-                        # intel.get_snapshot() reads the SAME stale RTDS cache — NOT safe.
-                        rtds_spot = self.twap.get_spot()
-                        if rtds_spot and self.twap.get_spot_age_seconds() <= 60:
-                            candle_close = rtds_spot
-                        elif trade.btc_price_at_entry > 0:
-                            candle_close = trade.btc_price_at_entry
-                        if candle_close > 0:
-                            logger.warning(
-                                f"Trade #{trade.trade_id}: force-resolving after {age/60:.0f}min "
-                                f"(RTDS TWAP miss) open={candle_open:.2f} close={candle_close:.2f}"
-                            )
-
-                if candle_close <= 0:
+                        logger.warning(
+                            f"Trade #{trade.trade_id}: no candle close after {age/60:.0f}min "
+                            f"(RTDS TWAP miss) — marking VOID (unrecovered)"
+                        )
+                        trade.result = "void"
+                        trade.candle_close_price = 0.0
+                        self.executor.resolve_trade(trade, won=False)
+                        resolved.append(trade)
+                        continue
                     logger.warning(f"Trade #{trade.trade_id}: no candle close, skipping (will retry)")
                     continue
 
