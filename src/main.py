@@ -210,11 +210,6 @@ class Rocky:
             self._write_cycle_meta()
             return
 
-        # Step 3: Enrich with news
-        # V2 (LLM): every cycle — SearXNG is self-hosted, no rate limits
-        # V1 (rules): every 3rd cycle to avoid external API rate limits
-        if self.engine_version == "v2" or self.cycle_count % 3 == 1:
-            snapshot = self.intel.enrich_with_news(snapshot)
 
         # Step 4: Scan for markets
         logger.info("🔍 Scanning Polymarket for BTC 5-min markets...")

@@ -95,7 +95,6 @@ def build_analysis_prompt(
     market: BtcMarket,
     snapshot: BtcSnapshot,
     orderbook: dict,
-    news_headlines: list[str],
 ) -> str:
     """Build the data-rich prompt for the LLM."""
 
@@ -130,9 +129,6 @@ def build_analysis_prompt(
             else:
                 book_str += f"  {a}\n"
 
-    news_str = "No recent headlines"
-    if news_headlines:
-        news_str = "\n".join(f"- {h}" for h in news_headlines[:8])
 
     t_left = getattr(market, "seconds_to_end", 0.0) or 0.0
 
@@ -235,8 +231,6 @@ def build_analysis_prompt(
 ### Polymarket Orderbook (YES/Up token)
 {book_str}
 
-### Latest BTC News (often lagging for 5m — use carefully)
-{news_str}
 
 ---
 Compute p_up, compare to YES price, apply edge rules, then decide.
@@ -304,7 +298,6 @@ class DecisionEngineV2:
             market=market,
             snapshot=snapshot,
             orderbook=orderbook or {},
-            news_headlines=snapshot.news_headlines,
         )
 
         llm_response = self._call_llm(user_prompt)
