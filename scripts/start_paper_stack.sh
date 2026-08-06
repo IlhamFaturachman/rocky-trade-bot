@@ -77,8 +77,8 @@ set -a
 source <(grep -v '^#' .env | sed 's/\r$//')
 set +a
 
-# start dashboard (port 80 for Cloudflare Flexible mode, IPv6 for VPS Jerman)
-nohup ./.venv/bin/python3 src/dashboard.py --host :: --port 80 > logs/dashboard.log 2>&1 &
+# start dashboard (port 80, IPv4, wrapped in restart loop — survives crashes)
+nohup bash -c 'while true; do ./.venv/bin/python3 src/dashboard.py --host 0.0.0.0 --port 80; echo "[watchdog] dashboard exited, restarting in 5s..."; sleep 5; done' > logs/dashboard.log 2>&1 &
 echo "dashboard_pid $!"
 
 # start paper — wrapped in restart loop (survives crashes during 7-day collection)
