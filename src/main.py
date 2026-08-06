@@ -794,14 +794,12 @@ class Rocky:
                     # using entry price as open + current snapshot as close.
                     age = time.time() - trade.timestamp
                     if age > 600:
-                        # RTDS spot as close — but ONLY if fresh (entry guard logic).
-                        # During RTDS outage, get_spot() returns stale price → wrong resolution.
+                        # Force-resolve: RTDS spot ONLY if fresh, else entry price.
+                        # intel.get_snapshot() reads the SAME stale RTDS cache — NOT safe.
                         rtds_spot = self.twap.get_spot()
-                        if rtds_spot and self.twap.get_spot_age_seconds() > 60:
-                            rtds_spot = None  # stale → fall through to entry price
-                        snapshot = self.intel.get_snapshot()
-                        candle_close = rtds_spot or snapshot.price_usd
-                        if candle_close <= 0 and trade.btc_price_at_entry > 0:
+                        if rtds_spot and self.twap.get_spot_age_seconds() <= 60:
+                            candle_close = rtds_spot
+                        elif trade.btc_price_at_entry > 0:
                             candle_close = trade.btc_price_at_entry
                         if candle_close > 0:
                             logger.warning(
