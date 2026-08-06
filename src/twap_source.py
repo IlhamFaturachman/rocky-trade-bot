@@ -105,9 +105,21 @@ class TwapSource:
                 "RTDS connected to Polymarket — streaming Chainlink spot + "
                 "Binance relay + TWAP 30s BTC/USD"
             )
-            async for raw in ws:
-                if not self._running:
-                    break
+            last_tick = time.time()
+            while self._running:
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=45)
+                except asyncio.TimeoutError:
+                    # No data for 45s — connection is "alive" (pings) but
+                    # Polymarket stopped sending ticks. Force reconnect.
+                    gap = time.time() - last_tick
+                    logger.warning(
+                        f"RTDS no ticks for {gap:.0f}s — force reconnecting"
+                    )
+                    self._connected = False
+                    return
+                if not raw:
+                    continue
                 try:
                     msg = json.loads(raw)
                     if msg.get("type") != "update":
@@ -118,6 +130,7 @@ class TwapSource:
                     if ts_ms <= 0:
                         continue
                     ts_sec = ts_ms // 1000
+                    last_tick = time.time()
 
                     if topic == "crypto_prices_chainlink":
                         if payload.get("symbol") != "btc/usd":
