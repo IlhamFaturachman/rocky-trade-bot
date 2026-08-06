@@ -190,7 +190,7 @@ class ExecutionEngine:
         else:
             self.balance += stake
             self.balance = round(self.balance, 4)
-
+            self._save_state()
         return record
 
     def open_shadow(
