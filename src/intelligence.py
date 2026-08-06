@@ -163,7 +163,7 @@ class IntelligenceEngine:
                 "div_bps": 0.0,
             }
         except Exception as e:
-            logger.error(f"Binance price fetch failed: {e}")
+            logger.debug(f"Binance price fetch failed (expected on DE VPS): {e}")
             return {"price": 0, "volume": 0, "high": 0, "low": 0, "spot_age": 999.0, "div_bps": 0.0}
 
     def _fetch_binance_klines(self, interval: str = "1m", limit: int = 60) -> list:
@@ -194,7 +194,7 @@ class IntelligenceEngine:
                 })
             return klines
         except Exception as e:
-            logger.error(f"Failed to fetch klines: {e}")
+            logger.debug(f"Failed to fetch klines (expected on DE VPS): {e}")
             return []
 
     def _calculate_changes(self, klines: list, current_price: float) -> dict:

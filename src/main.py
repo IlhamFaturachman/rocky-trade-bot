@@ -879,7 +879,7 @@ class Rocky:
                         return float(k[1])
                 return float(klines[-1][1])
         except Exception as e:
-            logger.warning(f"Failed to fetch candle open: {e}")
+            logger.debug(f"Failed to fetch candle open (Binance, expected on DE VPS): {e}")
         return 0.0
 
     def _fetch_candle_close_at(self, trade_timestamp: float) -> float:
