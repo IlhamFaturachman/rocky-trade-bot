@@ -77,16 +77,24 @@ set -a
 source <(grep -v '^#' .env | sed 's/\r$//')
 set +a
 
+# Rotate shell-redirected logs (nohup > file) — RotatingFileHandler only covers rocky.log
+# Truncate if >50MB, keep last backup. Run before starting processes.
+for f in logs/paper.stdout logs/dashboard.log logs/verify.log; do
+    if [ -f "$f" ] && [ $(stat -c%s "$f" 2>/dev/null || echo 0) -gt 50000000 ]; then
+        mv "$f" "$f.1"
+    fi
+done
+
 # start dashboard (port 80, dual-stack IPv6 :: → accepts IPv4+IPv6, restart loop)
 nohup bash -c 'while true; do ./.venv/bin/python3 src/dashboard.py --host :: --port 80; echo "[watchdog] dashboard exited, restarting in 5s..."; sleep 5; done' > logs/dashboard.log 2>&1 &
 echo "dashboard_pid $!"
 
-# start paper — wrapped in restart loop (survives crashes during 7-day collection)
+# start paper — wrapped in restart loop (survives crashes during 30-day collection)
 nohup bash -c 'while true; do ./.venv/bin/python3 src/main.py --mode paper --engine v2 --interval 60 --balance 5; echo "[watchdog] main.py exited, restarting in 15s..."; sleep 15; done' > logs/paper.stdout 2>&1 &
 echo "paper_pid $!"
 sleep 3
 pgrep -af 'src/main.py|src/dashboard.py|verify_trades' || true
 
-# start verify_trades (Polymarket/Binance cross-check, survives restarts)
-nohup ./.venv/bin/python3 scripts/verify_trades.py --loop 60 --stop-after 0 > logs/verify.log 2>&1 &
+# start verify_trades (wrapped in restart loop — survives crashes during 30-day run)
+nohup bash -c 'while true; do ./.venv/bin/python3 scripts/verify_trades.py --loop 60 --stop-after 0; echo "[watchdog] verify_trades exited, restarting in 15s..."; sleep 15; done' > logs/verify.log 2>&1 &
 echo "verify_pid $!"

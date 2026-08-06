@@ -185,11 +185,12 @@ class ExecutionEngine:
 
         if record:
             self.trades.append(record)
-            self._save_state()
             self._append_journal(record)
+            self._save_state()
         else:
             self.balance += stake
             self.balance = round(self.balance, 4)
+            self._save_state()
 
         return record
 
@@ -313,7 +314,7 @@ class ExecutionEngine:
         # from $5. Loosen here so bot can trade through normal losing streaks.
         compounding_zone = self.balance < 20.0
         effective_max_losses = 10 if compounding_zone else self.config.max_consecutive_losses
-        effective_daily_limit = 0.60 if compounding_zone else self.config.daily_loss_limit_pct
+        effective_daily_limit = 1.0 if compounding_zone else self.config.daily_loss_limit_pct
 
         if self.consecutive_losses >= effective_max_losses:
             self._paused_cycles += 1
@@ -823,6 +824,15 @@ class ExecutionEngine:
             logger.error(f"Failed to scan pending_post recovery: {e}")
 
     def reset_daily(self):
+        # Paper mode: top-up balance if depleted so 30-day real-trade data
+        # collection doesn't die after a losing streak. Live mode: never touch.
+        if self.config.mode == TradingMode.PAPER and self.balance < 1.0:
+            old = self.balance
+            self.balance = round(self.config.paper_starting_balance, 4)
+            logger.info(
+                f"📅 Paper balance topped up: ${old:.4f} → ${self.balance:.4f} "
+                f"(daily reset keeps real-trade data flowing)"
+            )
         self.daily_starting_balance = self.balance
         self._save_state()
         logger.info(f"Daily reset. Starting balance: ${self.balance:.4f}")

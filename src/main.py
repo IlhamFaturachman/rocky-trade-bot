@@ -727,6 +727,15 @@ class Rocky:
                 continue
             self.pending_trades.append(rec)
             already.add(tid)
+            # Re-deduct stake for real trades if state.json wasn't saved
+            # (crash between balance-=stake and _save_state). If state WAS saved,
+            # balance already reflects the deduction — check trade_count.
+            if not rec.is_shadow and rec.trade_id > self.executor.trade_count:
+                logger.warning(
+                    f"Reloaded real trade #{rec.trade_id} not in state "
+                    f"(trade_count={self.executor.trade_count}) — deducting ${rec.stake_usd:.4f}"
+                )
+                self.executor.balance = round(self.executor.balance - rec.stake_usd, 4)
             n += 1
             # restore shadow dedup keys so we don't re-open same window
             try:
