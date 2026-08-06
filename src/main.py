@@ -195,6 +195,20 @@ class Rocky:
             logger.warning("Could not get BTC price, skipping cycle")
             return
 
+        # Staleness guard: if RTDS spot is >60s old, skip — trading on stale
+        # prices is worse than skipping. RTDS reconnects automatically (5s),
+        # so this only triggers during genuine outages.
+        spot_age = self.twap.get_spot_age_seconds()
+        if spot_age > 60:
+            logger.warning(
+                f"RTDS spot stale ({spot_age:.0f}s old), skipping cycle — "
+                f"RTDS connected={self.twap.connected}"
+            )
+            self.last_cycle_meta = {"event": "skip", "code": "stale_price",
+                                   "reason": f"RTDS spot {spot_age:.0f}s old"}
+            self._write_cycle_meta()
+            return
+
         # Step 3: Enrich with news
         # V2 (LLM): every cycle — SearXNG is self-hosted, no rate limits
         # V1 (rules): every 3rd cycle to avoid external API rate limits
