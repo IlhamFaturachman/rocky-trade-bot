@@ -904,8 +904,8 @@ class Rocky:
             logger.debug(f"TWAP from RTDS: ${twap:,.2f} (window_end={window_end})")
             return twap
 
-        # ── Fallback 1: RTDS Chainlink spot at window_end (always cached) ──
-        spot = self.twap.get_price_at(window_end, tolerance=60)
+        # ── Fallback 1: RTDS Chainlink spot at/before window_end (NOT after — next window data) ──
+        spot = self.twap.get_price_before(window_end, tolerance=60)
         if spot and spot > 0:
             logger.debug(f"TWAP miss → spot from RTDS: ${spot:,.2f} (window_end={window_end})")
             return spot

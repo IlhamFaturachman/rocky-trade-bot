@@ -245,6 +245,28 @@ class TwapSource:
             return best_price
         return None
 
+    def get_price_before(self, target_timestamp: float, tolerance: int = 60) -> Optional[float]:
+        """Chainlink spot price closest to BUT NOT AFTER target_timestamp.
+
+        For settlement: must use data from within the window, not the next one.
+        """
+        target = int(target_timestamp)
+        with self._lock:
+            if not self._spot_cache:
+                return None
+            best_price = None
+            best_diff = tolerance + 1
+            for ts, price in self._spot_cache:
+                if ts > target:
+                    continue  # skip future ticks (next window)
+                diff = target - ts
+                if diff < best_diff:
+                    best_diff = diff
+                    best_price = price
+        if best_price is not None and best_diff <= tolerance:
+            return best_price
+        return None
+
     def get_twap_at(self, target_timestamp: float, tolerance: int = 10) -> Optional[float]:
         """30s TWAP settlement price closest to target_timestamp."""
         target = int(target_timestamp)
