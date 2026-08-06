@@ -779,15 +779,17 @@ class Rocky:
                     # Watchdog: trade old + Binance fetch failing → force-resolve
                     # using entry price as open + current snapshot as close.
                     age = time.time() - trade.timestamp
-                    if age > 1800:
+                    if age > 600:
+                        # RTDS spot as close (settlement-accurate, not just "current price")
+                        rtds_spot = self.twap.get_spot()
                         snapshot = self.intel.get_snapshot()
-                        candle_close = snapshot.price_usd
+                        candle_close = rtds_spot or snapshot.price_usd
                         if candle_close <= 0 and trade.btc_price_at_entry > 0:
                             candle_close = trade.btc_price_at_entry
                         if candle_close > 0:
                             logger.warning(
                                 f"Trade #{trade.trade_id}: force-resolving after {age/60:.0f}min "
-                                f"(Binance fetch failed) open={candle_open:.2f} close={candle_close:.2f}"
+                                f"(RTDS TWAP miss) open={candle_open:.2f} close={candle_close:.2f}"
                             )
 
                 if candle_close <= 0:
@@ -879,12 +881,34 @@ class Rocky:
         window_end = window_start + 300
 
         # ── Primary: Polymarket RTDS Chainlink TWAP ──
-        twap = self.twap.get_twap_at(window_end, tolerance=30)
+        # Broad tolerance: TWAP ticks arrive ~1s but window_end is at :00 boundary.
+        # Use 120s to catch the nearest tick even if RTDS had a brief gap.
+        twap = self.twap.get_twap_at(window_end, tolerance=120)
         if twap and twap > 0:
             logger.debug(f"TWAP from RTDS: ${twap:,.2f} (window_end={window_end})")
             return twap
 
-        # ── Fallback: Binance 1s klines average over last 30s ──
+        # ── Fallback 1: RTDS Chainlink spot at window_end (always cached) ──
+        spot = self.twap.get_price_at(window_end, tolerance=60)
+        if spot and spot > 0:
+            logger.debug(f"TWAP miss → spot from RTDS: ${spot:,.2f} (window_end={window_end})")
+            return spot
+
+        # ── Fallback 2: RTDS 1m kline close nearest to window_end ──
+        klines = self.twap.get_klines_1m()
+        if klines:
+            closest = None
+            best_diff = 999
+            for k in klines:
+                diff = abs(k["open_time"] - window_end)
+                if diff < best_diff:
+                    best_diff = diff
+                    closest = k
+            if closest and best_diff <= 120:
+                logger.debug(f"TWAP+spot miss → kline close: ${closest['close']:,.2f} (diff={best_diff}s)")
+                return closest["close"]
+
+        # ── Fallback 3: Binance 1s klines (unreachable on DE VPS, kept for completeness) ──
         try:
             twap_start = window_end - 30
             resp = requests.get(
@@ -910,7 +934,7 @@ class Rocky:
                     )
                     return twap
         except Exception as e:
-            logger.warning(f"TWAP fetch failed (RTDS miss + Binance error): {e}")
+            logger.warning(f"TWAP fetch failed (all RTDS fallbacks missed + Binance error): {e}")
         return 0.0
 
     def _print_stats(self):
