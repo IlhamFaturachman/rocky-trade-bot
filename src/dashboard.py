@@ -393,13 +393,23 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    import argparse
+    import argparse, socket
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default=HOST)
     ap.add_argument("--port", type=int, default=PORT)
     args = ap.parse_args()
-    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"Rocky dashboard on http://{args.host}:{args.port}  root={ROOT}", flush=True)
+
+    # Dual-stack: bind IPv6 :: with IPV6_V6ONLY=0 → accepts IPv4 + IPv6.
+    # Cloudflare origin pull can use either family; single-family bind → 521.
+    class DualStackServer(ThreadingHTTPServer):
+        address_family = socket.AF_INET6
+        def server_bind(self):
+            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            super().server_bind()
+
+    host = args.host if ":" in args.host else "::"
+    httpd = DualStackServer((host, args.port), Handler)
+    print(f"Rocky dashboard on http://{host}:{args.port} (dual-stack)  root={ROOT}", flush=True)
     httpd.serve_forever()
 
 
