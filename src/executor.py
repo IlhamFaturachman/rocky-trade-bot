@@ -82,6 +82,7 @@ class ExecutionEngine:
         self.balance = config.paper_starting_balance
         self.trade_count = 0
         self.consecutive_losses = 0
+        self._paused_cycles = 0  # auto-resume counter for consecutive-loss pause
         self.daily_starting_balance = self.balance
         self.trades: list[TradeRecord] = []
         self._clob = None
@@ -269,6 +270,7 @@ class ExecutionEngine:
             record.result = "win"
             if not record.is_shadow:
                 self.consecutive_losses = 0
+                self._paused_cycles = 0
         else:
             record.payout = 0.0
             record.pnl = -record.stake_usd
@@ -314,11 +316,26 @@ class ExecutionEngine:
         effective_daily_limit = 0.60 if compounding_zone else self.config.daily_loss_limit_pct
 
         if self.consecutive_losses >= effective_max_losses:
-            logger.warning(
-                f"Hit {self.consecutive_losses} consecutive losses, "
-                f"pausing trading. Need manual reset or a win."
-            )
-            return False
+            self._paused_cycles += 1
+            # Auto-resume after 50 paused cycles (~50min) — keeps collecting
+            # real-trade performance data during 30-day unattended run.
+            # A 10-loss streak is normal over a month; permanent pause kills
+            # the "lihat performa trade real" data the user wants.
+            if self._paused_cycles >= 50:
+                logger.warning(
+                    f"Auto-resuming after {self.consecutive_losses} consecutive losses "
+                    f"and {self._paused_cycles} paused cycles — resetting loss counter "
+                    f"to continue real-trade data collection"
+                )
+                self.consecutive_losses = 0
+                self._paused_cycles = 0
+            else:
+                logger.warning(
+                    f"Hit {self.consecutive_losses} consecutive losses, "
+                    f"pausing real trades ({self._paused_cycles}/50 paused cycles) — "
+                    f"shadow trades continue"
+                )
+                return False
 
         daily_loss = (
             (self.daily_starting_balance - self.balance) / self.daily_starting_balance

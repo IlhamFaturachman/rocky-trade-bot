@@ -42,8 +42,9 @@ def setup_logging(config: Config):
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # File handler
-    fh = logging.FileHandler(config.log_path)
+    # File handler — rotating to prevent disk fill over 30-day collection
+    from logging.handlers import RotatingFileHandler
+    fh = RotatingFileHandler(config.log_path, maxBytes=50_000_000, backupCount=5)
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(formatter)
 
