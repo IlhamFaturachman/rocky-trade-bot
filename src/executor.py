@@ -185,12 +185,11 @@ class ExecutionEngine:
 
         if record:
             self.trades.append(record)
-            self._append_journal(record)
             self._save_state()
+            self._append_journal(record)
         else:
             self.balance += stake
             self.balance = round(self.balance, 4)
-            self._save_state()
 
         return record
 
